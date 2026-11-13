@@ -862,6 +862,7 @@ GRANT SELECT ON missions, astronauts, rule_sets, rules, vital_samples, sleep_ses
 GRANT INSERT, UPDATE ON check_ins, check_in_answers, agent_conversations, agent_messages, lab_results,
     crew_alerts, decisions, treatment_plans, treatment_plan_items, medication_events, sessions, accounts,
     astronauts, command_handovers, mission_reports TO app_user;
+GRANT DELETE ON sessions TO app_user;  -- sign-out; the session_logout policy limits it to the caller's own session
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO watch_service;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user, watch_service;
 
