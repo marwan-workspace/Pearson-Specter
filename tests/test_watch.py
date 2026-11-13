@@ -58,7 +58,7 @@ class WatchTest(unittest.TestCase):
         self.assertEqual((d["condition"], d["action"]), ("radiation_sickness", "alert_crewmate"))
 
     def test_broken_or_missing_sensor_is_a_fault_not_healthy(self):
-        for change in ({"hr_mean": float("nan")}, {"bp_sys": None}, {"location": "europa"}):
+        for change in ({"hr_mean": float("nan")}, {"bp_sys": None}, {"temp": None}, {"location": "europa"}):
             state, raised, d = run(change, {"condition": "none", "explanation": "fine"})
             self.assertEqual((raised, d["condition"], d["action"]), (["sensor_fault"], "sensor_fault", "alert_crewmate"))
         self.assertEqual(run({"hr_mean": float("nan")})[0], "unknown")
@@ -67,6 +67,10 @@ class WatchTest(unittest.TestCase):
     def test_low_oxygen_alerts(self):
         _, raised, d = run({"spo2": 82})
         self.assertEqual((raised, d["condition"], d["action"]), (["spo2_low"], "low_oxygen", "alert_crewmate"))
+
+    def test_fever_alerts(self):
+        _, raised, d = run({"temp": 38.9})
+        self.assertEqual((raised, d["condition"], d["action"]), (["temp_high"], "fever", "alert_crewmate"))
 
     def test_no_flag_means_no_llm_call(self):
         self.assertEqual(run({})[2]["source"], "rules")

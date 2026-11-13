@@ -22,7 +22,7 @@ export function BackendRecord({astronautKey}:{astronautKey:string}) {
   const [records,setRecords]=useState<Record<string,Row[]>>({}); const [cursor,setCursor]=useState<Record<string,string>>({});
   const [alerts,setAlerts]=useState<Row[]>([]); const [stock,setStock]=useState<Row[]>([]); const [decisions,setDecisions]=useState<Row[]>([]);
   const [command,setCommand]=useState<Row[]>([]);
-  const [checkin,setCheckin]=useState<Message[]>([]); const [chat,setChat]=useState<Message[]>([]); const [entry,setEntry]=useState(''); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState(''); const polling=useRef(false);
+  const [checkin,setCheckin]=useState<Message[]>([]); const [chat,setChat]=useState<Message[]>([]); const [chatId,setChatId]=useState<string|null>(null); const [entry,setEntry]=useState(''); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState(''); const polling=useRef(false);
   const [panelName,setPanelName]=useState(''); const [analyte,setAnalyte]=useState(''); const [labValue,setLabValue]=useState(''); const [labUnit,setLabUnit]=useState('');
   const isSelf=me?.astronaut.callsign.toLowerCase()===astronautKey.toLowerCase();
   const loadStreams=useCallback(async(initial=false)=>{
@@ -56,6 +56,7 @@ export function BackendRecord({astronautKey}:{astronautKey:string}) {
       setAlerts(a.items);setStock(s.items);setDecisions(d.items);setCommand(cmd.crew);
       const latestCheckin=ci.items.find(x=>Array.isArray(x.transcript)&&x.transcript.length);
       if(latestCheckin)setCheckin(latestCheckin.transcript.map((m:any)=>({from:m.from==='agent'?'agent':'astronaut',text:String(m.text||''),at:Number(m.at)||Date.now()})));
+      if(ch.items[0]) setChatId(String(ch.items[0].id));
       if(ch.items[0]) setChat((ch.items[0].messages||[]).map((m:any)=>({from:m.speaker==='astronaut'?'astronaut':'agent',text:String(m.text||''),at:Date.parse(m.sentAt)||Date.now()})));
     } catch(e) {setNotice(e instanceof Error?e.message:'Could not load alerts and decisions.');}
   },[astronautKey,isSelf]);
@@ -66,7 +67,8 @@ export function BackendRecord({astronautKey}:{astronautKey:string}) {
   async function send(kind:'chat'|'checkin') {
     const text=entry.trim();if(!text||!me)return;const next=[...(kind==='chat'?chat:checkin),{from:'astronaut' as const,text,at:Date.now()}];
     (kind==='chat'?setChat:setCheckin)(next);setEntry('');setBusy(true);setNotice('');
-    try {const result=await backendRequest<{message:{text:string;at?:number};completed?:boolean;mental?:Row}>(`/${kind}`,{method:'POST',body:JSON.stringify({astronautId:astronautKey,date:new Date().toISOString().slice(0,10),missedYesterday:false,messages:next.map(m=>({from:m.from,text:m.text}))})});
+    try {const result=await backendRequest<{message:{text:string;at?:number};completed?:boolean;mental?:Row;conversationId?:string}>(`/${kind}`,{method:'POST',body:JSON.stringify({astronautId:astronautKey,date:new Date().toISOString().slice(0,10),missedYesterday:false,messages:next.map(m=>({from:m.from,text:m.text})),...(kind==='chat'&&chatId?{conversationId:chatId}:{})})});
+      if(result.conversationId) setChatId(result.conversationId);
       const reply={from:'agent' as const,text:result.message.text,at:result.message.at||Date.now()};
       (kind==='chat'?setChat:setCheckin)([...next,reply]);setNotice(kind==='checkin'&&result.completed?'Check-in complete.':'Agent replied.');
       await loadStreams(true);

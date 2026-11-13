@@ -438,10 +438,15 @@ async function runAgent(c, command, body) {
     const mental=await c.query('SELECT mental_health_score FROM check_ins WHERE astronaut_id=$1 AND mental_health_score IS NOT NULL ORDER BY check_in_date DESC LIMIT 1',[astr]);
     const data=await runPython(['-m','overview','chat'],{...body,context:{vitals:vitals.rows,mental:mental.rows[0]||null}});
     const safeSummary=mental.rows[0]?.mental_health_score==null?'Private manager-agent chat closed.':`Private manager-agent chat closed; latest mental-health score is ${mental.rows[0].mental_health_score}/100.`;
-    const conv=(await c.query(`INSERT INTO agent_conversations(astronaut_id,channel,status,summary,ended_at) VALUES($1,'dashboard','closed',$2,now()) RETURNING id`,[astr,safeSummary])).rows[0];
-    for(const m of Array.isArray(body.messages)?body.messages:[]) await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,$2,$3)`,[conv.id,m.from==='astronaut'?'astronaut':'manager_agent',String(m.text||'').slice(0,8000)]);
-    await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,'manager_agent',$2)`,[conv.id,String(data.message?.text||'')]);
-    return data;
+    // the client sends the whole history each turn: keep one conversation and store only what is new
+    const messages=Array.isArray(body.messages)?body.messages:[];
+    let convId=body.conversationId?(await c.query('SELECT id FROM agent_conversations WHERE id::text=$1 AND astronaut_id=$2',[String(body.conversationId),astr])).rows[0]?.id:null;
+    const reused=!!convId;
+    if(reused) await c.query('UPDATE agent_conversations SET summary=$2,ended_at=now() WHERE id=$1',[convId,safeSummary]);
+    else convId=(await c.query(`INSERT INTO agent_conversations(astronaut_id,channel,status,summary,ended_at) VALUES($1,'dashboard','closed',$2,now()) RETURNING id`,[astr,safeSummary])).rows[0].id;
+    for(const m of reused?messages.slice(-1):messages) await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,$2,$3)`,[convId,m.from==='astronaut'?'astronaut':'manager_agent',String(m.text||'').slice(0,8000)]);
+    await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,'manager_agent',$2)`,[convId,String(data.message?.text||'')]);
+    return { ...data, conversationId:convId };
   }
   if(command==='emergency') {
     const data=await runPython(['-m','overview','emergency'],body);
@@ -466,29 +471,37 @@ const BASELINES = {
 const jitter=(n,spread)=>Number((n+(Math.random()-.5)*spread).toFixed(1));
 
 async function watchTick() {
-  const crew=await watchTransaction(async c => (await c.query(`SELECT id,callsign,mission_id FROM astronauts WHERE active ORDER BY mission_id,command_rank`)).rows);
+  const crew=await watchTransaction(async c => (await c.query(`SELECT a.id,a.callsign,a.mission_id,lower(m.destination) AS location
+    FROM astronauts a JOIN missions m ON m.id=a.mission_id WHERE a.active ORDER BY a.mission_id,a.command_rank`)).rows);
   for(const member of crew) {
     const b=BASELINES[member.callsign.toLowerCase()] || {hr:68,sys:118,dia:76,spo2:98,temp:36.7};
     const reading={hr_mean:jitter(b.hr,5),hr_std:jitter(1.8,1),acc_std:jitter(1.1,.8),eda_mean:jitter(.35,.2),eda_slope:jitter(0,.04),
-      temp_mean:jitter(32,.4),bp_sys:jitter(b.sys,8),bp_dia:jitter(b.dia,6),spo2:jitter(b.spo2,1.2),radiation:jitter(.25,.1),location:'mars'};
+      temp_mean:jitter(32,.4),temp:jitter(b.temp,.4),bp_sys:jitter(b.sys,8),bp_dia:jitter(b.dia,6),spo2:jitter(b.spo2,1.2),radiation:jitter(.25,.1),location:member.location};
     const lastDoseRows=await watchTransaction(async c => (await c.query(`SELECT ce.condition_key,extract(epoch from max(me.administered_at)) AS at
       FROM medication_events me JOIN condition_events ce ON ce.id=me.condition_event_id
       WHERE me.astronaut_id=$1 AND me.status='administered' AND me.administered_at>now()-interval '1 day' GROUP BY ce.condition_key`,[member.id])).rows);
     const lastDose=Object.fromEntries(lastDoseRows.map(r=>[r.condition_key,Number(r.at)]));
     let result;
     try { result=await runPython(['-m','watch.backend_worker'],{reading,lastDose},12_000); }
-    catch(e) { console.error(`watch worker for ${member.callsign}:`,e.message); result={state:'unknown',flags:['sensor_fault'],decision:{condition:'sensor_fault',tier:3,action:'alert_crewmate',first_response:'Check the watch is worn and working',medication:'',explanation:e.message,source:'fallback'}}; }
-    const decision=result.decision; const metric={hr:reading.hr_mean,sys:reading.bp_sys,dia:reading.bp_dia,spo2:reading.spo2,temp:36.7,radiation:reading.radiation};
+    // a server-side failure says nothing about the astronaut's watch: log it, raise no crew alert
+    catch(e) { console.error(`watch worker for ${member.callsign}:`,e.message); continue; }
+    const decision=result.decision; const metric={hr:reading.hr_mean,sys:reading.bp_sys,dia:reading.bp_dia,spo2:reading.spo2,temp:reading.temp,radiation:reading.radiation};
     await watchTransaction(async c=>{
       await c.query(`INSERT INTO vital_samples(astronaut_id,observed_at,source,activity,heart_rate_bpm,systolic_mmhg,diastolic_mmhg,spo2_percent,temperature_c,radiation_rate,radiation_rate_unit,sensor_status,payload)
         VALUES($1,now(),'watch',$2,$3,$4,$5,$6,$7,$8,'µSv/h',$9,$10::jsonb)`,[member.id,result.state,metric.hr,metric.sys,metric.dia,metric.spo2,metric.temp,metric.radiation,result.flags.includes('sensor_fault')?'fault':'ok',JSON.stringify({reading,flags:result.flags})]);
-      if(!result.flags.length || decision.condition==='none') return;
+      const current=!result.flags.length || decision.condition==='none' ? '' : decision.condition;
+      // one event per episode: close watch events whose condition has cleared, and do not repeat one still open
+      await c.query(`UPDATE condition_events SET status='resolved',ended_at=now() WHERE astronaut_id=$1 AND reported_by='watch'
+        AND status IN ('open','monitoring') AND condition_key<>$2`,[member.id,current]);
+      if(!current) return;
+      if((await c.query(`SELECT 1 FROM condition_events WHERE astronaut_id=$1 AND reported_by='watch' AND condition_key=$2
+        AND status IN ('open','monitoring')`,[member.id,current])).rowCount) return;
       const rule=(await c.query(`SELECT r.id FROM rules r JOIN rule_sets rs ON rs.id=r.rule_set_id WHERE rs.mission_id=$1 AND rs.status='active' AND r.condition_key=$2 AND r.enabled ORDER BY rs.created_at DESC LIMIT 1`,[member.mission_id,decision.condition])).rows[0];
       const severity=decision.tier===1?'critical':decision.tier===2?'high':'moderate';
       const ev=(await c.query(`INSERT INTO condition_events(astronaut_id,started_at,condition_key,severity,reported_by,summary)
         VALUES($1,now(),$2,$3,'watch',$4) RETURNING id`,[member.id,decision.condition,severity,decision.explanation])).rows[0];
       let medicationId=null;
-      const medName=['low_oxygen','sensor_fault'].includes(decision.condition)?'':String(decision.medication||'').toLowerCase().split(/[;,]/)[0].replace(/\s*\([^)]*\)/g,'').trim();
+      const medName=['low_oxygen','sensor_fault'].includes(decision.condition)?'':String(decision.medication||'').toLowerCase().split(/[;,]|\s+or\s+/)[0].replace(/\s*\([^)]*\)/g,'').trim();
       if(medName) medicationId=(await c.query('SELECT id FROM medications WHERE lower(name)=$1',[medName])).rows[0]?.id || null;
       const decisionType=decision.tier===1?'tier1_auto':decision.tier===2?'tier2_dose':medicationId?'tier3_medication':'watch_event';
       const outcome=decisionType==='watch_event'?'accepted':'proposed';
