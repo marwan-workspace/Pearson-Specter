@@ -1,39 +1,49 @@
 flowchart TD
-    V[Simulated or watch vitals] --> S[Store timestamped sample with activity context]
-    S --> R{Does an active rule match?}
-    R -->|No| M[Continue monitoring]
-    M --> V
-    R -->|Yes| D[Watch LLM records condition and rationale]
+    V[Simulated or watch vitals] --> S[Store timestamped sample]
+    S --> M[Python watch worker detects flags and activity]
+    M --> D[Apply configured rule response and record decision]
     D --> T{Response tier}
 
-    T -->|Tier 1: immediate threat| A[Log automatic injection event with cancel window and stock update]
-    A --> C[Alert crew and manager agent]
-    T -->|Tier 2: confirm first| P[Ask astronaut to confirm]
-    P -->|Confirm| I[Log confirmed injection event]
-    P -->|Cancel or decline| X[Cancel event and continue monitoring]
-    T -->|Tier 3: crewmate action| N[Alert crewmate with response instructions]
-    C --> E[Track event and response]
-    I --> E
-    X --> E
-    N --> E
+    T -->|Tier 1| A[Create cancellable dose proposal]
+    A --> X{Reviewed quantity and stock available?}
+    X -->|Yes, after cancel window| I[Record administration and decrement inventory]
+    X -->|No| U[Mark dose unavailable and notify crew]
+    A -->|Astronaut cancels in time| C[Cancel dose proposal]
+    I --> H{Was the patient acting leader?}
+    H -->|Yes| CH[Move command to next fit crew member and log handover]
+    H -->|No| E[Monitor event]
+    U --> E
+    C --> E
+    CH --> E
 
-    subgraph Daily review
-        SL[Overnight sleep] --> CI[Daily astronaut check-in]
-        VH[Last 24 hours of vitals] --> CI
-        MH[Mental health answers] --> CI
-        CI --> RC[Manager agent analyzes root cause; astronaut report takes priority]
-        RC --> TP[Create treatment plan]
-        TP --> UR{Urgent?}
-        UR -->|Yes| ACT[Proceed and log plan]
-        UR -->|No| EARTH[Queue plan for mission command review]
+    T -->|Tier 2| P[Send dose decision to astronaut's decider]
+    P -->|Approve with reviewed dose and stock| PC[Ask astronaut to confirm]
+    PC -->|Confirm| E
+    P -->|Reject| E
+    P -->|Wait 60 s| PE[Escalate that decision one position]
+
+    T -->|Tier 3| N[Alert crew with first-response instructions]
+    N -->|Decider approves, stock and dose available| G[Alerted crewmate records administration]
+    N -->|Wait 60 s| G
+    G --> E
+
+    subgraph Daily health review
+        SL[Sleep record] --> CI[Daily check-in]
+        VH[24-hour vitals] --> CI
+        MH[Mental-health answers] --> CI
+        CI --> RC[Manager agent assesses root cause]
+        RC --> TP[Save treatment plan and items]
+        TP --> AP[Queue plan items for the astronaut's decider]
     end
-
     E --> CI
-    EARTH --> DELAY[Apply mission communication delay]
-    DELAY --> REPLY[Receive mission command reply]
-    REPLY --> CREW[Show instructions to crew]
-    ACT --> CREW
-    E --> REPORT[Create emergency report]
-    CI --> WEEKLY[Create weekly crew summary]
-    REPORT --> QUEUE[Queue report until Earth contact]
-    WEEKLY --> QUEUE
+
+    subgraph Reports to mission command
+        ER[Emergency report] --> Q{Earth link available?}
+        WR[Acting leader creates weekly report] --> Q
+        Q -->|No| OFF[Keep report queued]
+        Q -->|Yes| SEND[Dispatch report and set Earth arrival time]
+        OFF -->|Link restored| SEND
+        SEND --> RT[Round-trip delay plus review interval]
+        RT --> ACK[Store simulated acknowledgment]
+    end
+    E --> ER

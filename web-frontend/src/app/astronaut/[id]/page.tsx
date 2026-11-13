@@ -1,18 +1,9 @@
-import { notFound } from 'next/navigation';
-import { CREW } from '@/lib/crew';
-import { AstronautView } from '@/components/AstronautView';
+'use client';
 
-export function generateStaticParams() {
-  return CREW.map((c) => ({ id: c.id }));
-}
+import { useParams } from 'next/navigation';
+import { BackendRecord } from '@/components/BackendRecord';
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  return { title: CREW.find((c) => c.id === id)?.name ?? 'Crew member' };
-}
-
-export default async function AstronautPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  if (!CREW.some((c) => c.id === id)) notFound();
-  return <AstronautView id={id} />;
+export default function AstronautPage() {
+  const params=useParams<{id:string}>();
+  return <BackendRecord astronautKey={String(params.id||'')} />;
 }

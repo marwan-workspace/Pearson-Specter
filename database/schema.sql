@@ -12,23 +12,62 @@ CREATE TABLE IF NOT EXISTS missions (
     id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name                      TEXT NOT NULL,
     destination               TEXT NOT NULL DEFAULT 'ISS',
-    earth_round_trip_seconds  INTEGER NOT NULL DEFAULT 0 CHECK (earth_round_trip_seconds >= 0),
+    earth_round_trip_seconds  DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (earth_round_trip_seconds >= 0),
+    earth_link_available      BOOLEAN NOT NULL DEFAULT TRUE,
+    earth_review_seconds      INTEGER NOT NULL DEFAULT 30 CHECK (earth_review_seconds >= 0),
     status                    TEXT NOT NULL DEFAULT 'active'
                                   CHECK (status IN ('planned', 'active', 'completed')),
     created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS earth_link_available BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE missions ADD COLUMN IF NOT EXISTS earth_review_seconds INTEGER NOT NULL DEFAULT 30 CHECK (earth_review_seconds >= 0);
+ALTER TABLE missions ALTER COLUMN earth_round_trip_seconds TYPE DOUBLE PRECISION USING earth_round_trip_seconds::DOUBLE PRECISION;
 
 CREATE TABLE IF NOT EXISTS astronauts (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     mission_id    UUID NOT NULL REFERENCES missions(id) ON DELETE RESTRICT,
     callsign      TEXT NOT NULL,
     display_name  TEXT NOT NULL,
-    role          TEXT NOT NULL DEFAULT 'crew'
-                      CHECK (role IN ('crew', 'medical_officer', 'commander')),
+    -- Display title only. Authority is derived from command_rank and fit_for_command.
+    role          TEXT NOT NULL DEFAULT 'crew',
+    command_rank  INTEGER NOT NULL CHECK (command_rank > 0),
+    fit_for_command BOOLEAN NOT NULL DEFAULT TRUE,
     active        BOOLEAN NOT NULL DEFAULT TRUE,
     joined_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (mission_id, callsign)
+    UNIQUE (mission_id, callsign),
+    UNIQUE (mission_id, command_rank)
 );
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    astronaut_id    UUID NOT NULL UNIQUE REFERENCES astronauts(id) ON DELETE CASCADE,
+    login           TEXT NOT NULL UNIQUE,
+    pin_hash        TEXT NOT NULL,
+    failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
+    locked          BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash   TEXT NOT NULL UNIQUE,
+    astronaut_id UUID NOT NULL REFERENCES astronauts(id) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_astronaut_expiry ON sessions(astronaut_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS command_handovers (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    mission_id        UUID NOT NULL REFERENCES missions(id) ON DELETE RESTRICT,
+    from_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL,
+    to_astronaut_id   UUID NOT NULL REFERENCES astronauts(id) ON DELETE RESTRICT,
+    reason            TEXT NOT NULL,
+    trigger           TEXT NOT NULL CHECK (trigger IN ('tier1_given', 'voluntary', 'restore', 'timeout')),
+    decision_id       UUID,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_command_handovers_mission_time ON command_handovers(mission_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS rule_sets (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -65,7 +104,7 @@ CREATE TABLE IF NOT EXISTS vital_samples (
     received_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     source               TEXT NOT NULL DEFAULT 'simulator'
                              CHECK (source IN ('simulator', 'watch', 'manual', 'replay')),
-    activity             TEXT CHECK (activity IN ('rest', 'walk', 'exercise', 'sleep', 'unknown')),
+    activity             TEXT CHECK (activity IN ('rest', 'walk', 'exercise', 'sleep', 'stress', 'unknown')),
     heart_rate_bpm       DOUBLE PRECISION CHECK (heart_rate_bpm IS NULL OR heart_rate_bpm > 0),
     systolic_mmhg        DOUBLE PRECISION CHECK (systolic_mmhg IS NULL OR systolic_mmhg > 0),
     diastolic_mmhg       DOUBLE PRECISION CHECK (diastolic_mmhg IS NULL OR diastolic_mmhg > 0),
@@ -73,7 +112,7 @@ CREATE TABLE IF NOT EXISTS vital_samples (
     temperature_c        DOUBLE PRECISION,
     breathing_rate_bpm   DOUBLE PRECISION CHECK (breathing_rate_bpm IS NULL OR breathing_rate_bpm > 0),
     radiation_rate       DOUBLE PRECISION CHECK (radiation_rate IS NULL OR radiation_rate >= 0),
-    radiation_rate_unit  TEXT,
+    radiation_rate_unit  TEXT NOT NULL DEFAULT (chr(181) || 'Sv/h') CHECK (radiation_rate_unit = (chr(181) || 'Sv/h')),
     skin_temperature_c   DOUBLE PRECISION,
     skin_conductance     DOUBLE PRECISION,
     motion_value         DOUBLE PRECISION,
@@ -130,6 +169,7 @@ CREATE TABLE IF NOT EXISTS check_ins (
     mental_health_score   DOUBLE PRECISION CHECK (mental_health_score IS NULL OR mental_health_score BETWEEN 0 AND 100),
     reported_symptoms     TEXT,
     agent_summary         TEXT,
+    transcript            JSONB NOT NULL DEFAULT '[]'::jsonb,
     UNIQUE (astronaut_id, check_in_date)
 );
 
@@ -152,6 +192,7 @@ CREATE TABLE IF NOT EXISTS agent_conversations (
     astronaut_id  UUID NOT NULL REFERENCES astronauts(id) ON DELETE RESTRICT,
     started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at      TIMESTAMPTZ,
+    summary       TEXT,
     channel       TEXT NOT NULL DEFAULT 'dashboard'
                       CHECK (channel IN ('dashboard', 'watch', 'other')),
     status        TEXT NOT NULL DEFAULT 'open'
@@ -212,6 +253,7 @@ CREATE INDEX IF NOT EXISTS idx_condition_events_status
 CREATE TABLE IF NOT EXISTS crew_alerts (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     condition_event_id  UUID NOT NULL REFERENCES condition_events(id) ON DELETE CASCADE,
+    medication_event_id UUID,
     recipient_id        UUID NOT NULL REFERENCES astronauts(id) ON DELETE RESTRICT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     acknowledged_at     TIMESTAMPTZ,
@@ -237,13 +279,19 @@ CREATE TABLE IF NOT EXISTS decisions (
     evidence            JSONB NOT NULL DEFAULT '{}'::jsonb,
     proposed_action     TEXT,
     outcome             TEXT CHECK (outcome IN ('proposed', 'accepted', 'rejected', 'cancelled', 'completed', 'superseded')),
-    supersedes_id       UUID REFERENCES decisions(id) ON DELETE SET NULL
+    supersedes_id       UUID REFERENCES decisions(id) ON DELETE SET NULL,
+    decided_by_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL,
+    escalated_from_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL,
+    escalated_to_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_decisions_astronaut_time
     ON decisions(astronaut_id, decided_at DESC);
 CREATE INDEX IF NOT EXISTS idx_decisions_condition
     ON decisions(condition_event_id, decided_at);
+
+ALTER TABLE command_handovers ADD CONSTRAINT fk_command_handovers_decision
+    FOREIGN KEY (decision_id) REFERENCES decisions(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS medications (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -288,28 +336,36 @@ CREATE TABLE IF NOT EXISTS medication_events (
     quantity            NUMERIC(12, 3) CHECK (quantity IS NULL OR quantity > 0),
     quantity_unit       TEXT,
     administered_by     TEXT,
+    confirmed_by_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL,
+    administered_by_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL,
     notes               TEXT,
     CHECK (cancel_until IS NULL OR cancel_until >= proposed_at),
     CHECK (administered_at IS NULL OR status = 'administered'),
     CHECK (cancelled_at IS NULL OR status = 'cancelled')
 );
+ALTER TABLE medication_events DROP CONSTRAINT IF EXISTS medication_events_status_check;
+ALTER TABLE medication_events ADD CONSTRAINT medication_events_status_check
+    CHECK (status IN ('proposed', 'awaiting_confirmation', 'confirmed', 'cancelled', 'administered', 'crew_action_required', 'declined', 'unavailable'));
 
 CREATE INDEX IF NOT EXISTS idx_medication_events_astronaut_time
     ON medication_events(astronaut_id, proposed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_medication_events_status
     ON medication_events(status, cancel_until);
 
+ALTER TABLE crew_alerts ADD CONSTRAINT fk_crew_alerts_medication_event
+    FOREIGN KEY (medication_event_id) REFERENCES medication_events(id) ON DELETE SET NULL;
+
 CREATE TABLE IF NOT EXISTS treatment_plans (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     astronaut_id         UUID NOT NULL REFERENCES astronauts(id) ON DELETE RESTRICT,
     health_assessment_id UUID REFERENCES health_assessments(id) ON DELETE SET NULL,
-    created_by           TEXT NOT NULL CHECK (created_by IN ('manager_agent', 'medical_officer', 'mission_command')),
+    created_by           TEXT NOT NULL CHECK (created_by IN ('manager_agent', 'team_leader')),
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     urgency              TEXT NOT NULL CHECK (urgency IN ('routine', 'urgent', 'emergency')),
     status               TEXT NOT NULL DEFAULT 'draft'
                              CHECK (status IN ('draft', 'awaiting_approval', 'approved', 'rejected', 'active', 'completed', 'cancelled')),
     rationale            TEXT NOT NULL,
-    approved_by          TEXT,
+    approved_by_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL,
     approved_at          TIMESTAMPTZ,
     earth_reply_due_at   TIMESTAMPTZ
 );
@@ -348,6 +404,8 @@ CREATE TABLE IF NOT EXISTS mission_reports (
     raw_data            JSONB NOT NULL DEFAULT '{}'::jsonb,
     flagged_issues      JSONB NOT NULL DEFAULT '[]'::jsonb,
     sent_at             TIMESTAMPTZ,
+    arrives_at          TIMESTAMPTZ,
+    reply_due_at        TIMESTAMPTZ,
     CHECK (period_end IS NULL OR period_start IS NULL OR period_end >= period_start)
 );
 
@@ -365,10 +423,67 @@ CREATE TABLE IF NOT EXISTS mission_command_replies (
     message            TEXT NOT NULL,
     instructions       JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+ALTER TABLE mission_reports ADD COLUMN IF NOT EXISTS arrives_at TIMESTAMPTZ;
+
+CREATE OR REPLACE FUNCTION schedule_mission_report_delivery()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE mission missions%ROWTYPE;
+BEGIN
+    SELECT * INTO mission FROM missions WHERE id=NEW.mission_id;
+    IF mission.earth_link_available AND NEW.status='queued' THEN
+        NEW.status := 'sent';
+        NEW.sent_at := now();
+        NEW.arrives_at := now() + (mission.earth_round_trip_seconds::double precision / 2) * interval '1 second';
+        NEW.reply_due_at := now() + mission.earth_round_trip_seconds::double precision * interval '1 second'
+            + mission.earth_review_seconds::double precision * interval '1 second';
+    END IF;
+    RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS mission_report_delivery_schedule ON mission_reports;
+CREATE TRIGGER mission_report_delivery_schedule BEFORE INSERT ON mission_reports
+FOR EACH ROW EXECUTE FUNCTION schedule_mission_report_delivery();
+
+CREATE OR REPLACE FUNCTION set_mission_earth_link(p_mission_id UUID,p_actor_id UUID,p_available BOOLEAN)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+BEGIN
+    IF p_actor_id IS DISTINCT FROM app_astronaut_id()
+       OR acting_leader(p_mission_id) IS DISTINCT FROM p_actor_id THEN
+        RAISE EXCEPTION 'Only the acting leader may change Earth link availability' USING ERRCODE='42501';
+    END IF;
+    UPDATE missions SET earth_link_available=p_available WHERE id=p_mission_id;
+    IF NOT FOUND THEN RETURN FALSE; END IF;
+    IF p_available THEN
+        UPDATE mission_reports r SET status='sent',sent_at=now(),
+            arrives_at=now()+(m.earth_round_trip_seconds::double precision/2)*interval '1 second',
+            reply_due_at=now()+m.earth_round_trip_seconds::double precision*interval '1 second'
+                +m.earth_review_seconds::double precision*interval '1 second'
+        FROM missions m WHERE m.id=r.mission_id AND r.mission_id=p_mission_id AND r.status='queued';
+    END IF;
+    RETURN TRUE;
+END $$;
+
+CREATE OR REPLACE FUNCTION set_mission_location(p_mission_id UUID,p_actor_id UUID,p_location TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE round_trip DOUBLE PRECISION;
+BEGIN
+    IF p_actor_id IS DISTINCT FROM app_astronaut_id()
+       OR acting_leader(p_mission_id) IS DISTINCT FROM p_actor_id THEN
+        RAISE EXCEPTION 'Only the acting leader may change the mission location' USING ERRCODE='42501';
+    END IF;
+    round_trip := CASE lower(p_location) WHEN 'iss' THEN 1.0 WHEN 'moon' THEN 2.6 WHEN 'mars' THEN 1500.0 ELSE NULL END;
+    IF round_trip IS NULL THEN RAISE EXCEPTION 'Location must be ISS, Moon, or Mars'; END IF;
+    UPDATE missions SET destination=CASE lower(p_location) WHEN 'iss' THEN 'ISS' WHEN 'moon' THEN 'Moon' ELSE 'Mars' END,
+        earth_round_trip_seconds=round_trip WHERE id=p_mission_id;
+    RETURN FOUND;
+END $$;
 
 CREATE TABLE IF NOT EXISTS lab_results (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     astronaut_id   UUID NOT NULL REFERENCES astronauts(id) ON DELETE RESTRICT,
+    entered_by_astronaut_id UUID REFERENCES astronauts(id) ON DELETE SET NULL,
     collected_at   TIMESTAMPTZ NOT NULL,
     entered_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     panel_name     TEXT NOT NULL,
@@ -383,8 +498,415 @@ CREATE TABLE IF NOT EXISTS lab_results (
 CREATE INDEX IF NOT EXISTS idx_lab_results_astronaut_time
     ON lab_results(astronaut_id, collected_at DESC);
 
+-- Command chain and visibility helpers. These functions read the complete crew list under the
+-- table owner's rights so policies on astronauts never recursively invoke the same RLS policy.
+CREATE OR REPLACE FUNCTION acting_leader(p_mission_id UUID)
+RETURNS UUID LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+    SELECT id FROM astronauts
+    WHERE mission_id = p_mission_id AND active AND fit_for_command
+    ORDER BY command_rank LIMIT 1
+$$;
+
+CREATE OR REPLACE FUNCTION decider_for(p_astronaut_id UUID)
+RETURNS UUID LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+    SELECT CASE
+        WHEN subject.id = acting_leader(subject.mission_id) THEN (
+            SELECT candidate.id FROM astronauts candidate
+            WHERE candidate.mission_id = subject.mission_id AND candidate.id <> subject.id
+              AND candidate.active AND candidate.fit_for_command
+            ORDER BY candidate.command_rank LIMIT 1
+        )
+        ELSE acting_leader(subject.mission_id)
+    END
+    FROM astronauts subject WHERE subject.id = p_astronaut_id
+$$;
+
+CREATE OR REPLACE FUNCTION visible_astronauts()
+RETURNS SETOF UUID LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+    SELECT id FROM astronauts
+    WHERE id = NULLIF(current_setting('app.astronaut_id', true), '')::UUID
+       OR decider_for(id) = NULLIF(current_setting('app.astronaut_id', true), '')::UUID
+$$;
+
+CREATE OR REPLACE FUNCTION app_astronaut_id()
+RETURNS UUID LANGUAGE sql STABLE AS $$
+    SELECT NULLIF(current_setting('app.astronaut_id', true), '')::UUID
+$$;
+
+CREATE OR REPLACE FUNCTION is_mission_crew(p_mission_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+    SELECT EXISTS (SELECT 1 FROM astronauts WHERE id = app_astronaut_id() AND mission_id = p_mission_id)
+$$;
+
+CREATE OR REPLACE FUNCTION administer_alerted_medication(p_event_id UUID, p_actor_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE d_id UUID; amount NUMERIC(12,3); inventory_id UUID;
+BEGIN
+    IF p_actor_id IS DISTINCT FROM app_astronaut_id() THEN RETURN FALSE; END IF;
+    SELECT me.quantity INTO amount FROM medication_events me WHERE me.id=p_event_id
+      AND me.status='crew_action_required' AND me.quantity IS NOT NULL;
+    IF NOT FOUND THEN RETURN FALSE; END IF;
+    SELECT i.id INTO inventory_id FROM medication_inventory i
+      JOIN medication_events me ON me.mission_id=i.mission_id AND me.medication_id=i.medication_id
+      JOIN medications m ON m.id=me.medication_id AND m.stock_unit=me.quantity_unit
+      WHERE me.id=p_event_id AND i.quantity_on_hand>=amount AND (i.expires_on IS NULL OR i.expires_on>=CURRENT_DATE)
+      ORDER BY i.expires_on NULLS LAST,i.updated_at
+      LIMIT 1 FOR UPDATE OF i;
+    IF inventory_id IS NULL THEN RETURN FALSE; END IF;
+    UPDATE medication_events me
+    SET status='administered', administered_at=now(), administered_by_astronaut_id=p_actor_id
+    WHERE me.id=p_event_id AND me.status='crew_action_required'
+      AND EXISTS (SELECT 1 FROM decisions d WHERE d.id=me.decision_id
+          AND (d.outcome='accepted' OR (d.outcome='proposed' AND d.decided_at<=now()-interval '60 seconds')))
+      AND EXISTS (SELECT 1 FROM crew_alerts ca WHERE ca.condition_event_id=me.condition_event_id
+          AND ca.recipient_id=p_actor_id AND ca.status IN ('pending','acknowledged'))
+    RETURNING me.decision_id INTO d_id;
+    IF NOT FOUND THEN RETURN FALSE; END IF;
+    UPDATE medication_inventory SET quantity_on_hand=quantity_on_hand-amount,updated_at=now() WHERE id=inventory_id;
+    UPDATE decisions SET outcome='completed', decided_at=now() WHERE id=d_id AND outcome='proposed';
+    UPDATE crew_alerts SET status='resolved' WHERE condition_event_id=(SELECT condition_event_id FROM medication_events WHERE id=p_event_id);
+    RETURN TRUE;
+END $$;
+
+CREATE OR REPLACE FUNCTION administer_watch_medication(p_event_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE amount NUMERIC(12,3); inventory_id UUID; event_row medication_events%ROWTYPE;
+BEGIN
+    SELECT * INTO event_row FROM medication_events WHERE id=p_event_id AND status='proposed'
+      AND cancel_until<=now() AND quantity IS NOT NULL FOR UPDATE;
+    IF NOT FOUND THEN RETURN FALSE; END IF;
+    amount := event_row.quantity;
+    SELECT i.id INTO inventory_id FROM medication_inventory i
+      JOIN medications m ON m.id=event_row.medication_id AND m.stock_unit=event_row.quantity_unit
+      WHERE i.mission_id=event_row.mission_id AND i.medication_id=event_row.medication_id AND i.quantity_on_hand>=amount
+        AND (i.expires_on IS NULL OR i.expires_on>=CURRENT_DATE)
+      ORDER BY i.expires_on NULLS LAST,i.updated_at LIMIT 1 FOR UPDATE OF i;
+    IF inventory_id IS NULL THEN RETURN FALSE; END IF;
+    UPDATE medication_inventory SET quantity_on_hand=quantity_on_hand-amount,updated_at=now() WHERE id=inventory_id;
+    UPDATE medication_events SET status='administered',administered_at=now(),administered_by='watch (automatic)'
+      WHERE id=p_event_id AND status='proposed';
+    UPDATE decisions SET outcome='accepted',decided_at=now() WHERE id=event_row.decision_id AND outcome='proposed';
+    RETURN TRUE;
+END $$;
+
+CREATE OR REPLACE FUNCTION simulate_condition(p_astronaut_id UUID, p_condition_key TEXT)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE target astronauts%ROWTYPE; rule_row rules%ROWTYPE; med_id UUID; med_name TEXT; event_id UUID; decision_id UUID; medication_event_id UUID; action_name TEXT;
+BEGIN
+    SELECT * INTO target FROM astronauts WHERE id=p_astronaut_id AND active;
+    IF NOT FOUND OR acting_leader(target.mission_id) IS DISTINCT FROM app_astronaut_id() THEN
+        RAISE EXCEPTION 'Only the acting leader may inject a simulator condition' USING ERRCODE='42501';
+    END IF;
+    SELECT r.* INTO rule_row FROM rules r JOIN rule_sets rs ON rs.id=r.rule_set_id
+      WHERE rs.mission_id=target.mission_id AND rs.status='active' AND r.condition_key=p_condition_key AND r.enabled
+      ORDER BY rs.created_at DESC LIMIT 1;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Unknown or disabled simulator condition'; END IF;
+    med_name := CASE p_condition_key WHEN 'shock' THEN 'epinephrine' WHEN 'bradycardia' THEN 'atropine'
+      WHEN 'radiation_sickness' THEN 'ondansetron' WHEN 'low_oxygen' THEN NULL
+      WHEN 'panic_attack' THEN 'lorazepam' WHEN 'tachycardia' THEN 'adenosine' WHEN 'low_bp' THEN 'midodrine'
+      WHEN 'high_bp' THEN 'labetalol' WHEN 'fever' THEN 'acetaminophen' ELSE NULL END;
+    action_name := CASE rule_row.response_tier WHEN 1 THEN 'auto_inject' WHEN 2 THEN 'ask_confirm' ELSE 'alert_crewmate' END;
+    INSERT INTO condition_events(astronaut_id,started_at,condition_key,severity,reported_by,summary)
+      VALUES(p_astronaut_id,now(),p_condition_key,CASE rule_row.response_tier WHEN 1 THEN 'critical' WHEN 2 THEN 'high' ELSE 'moderate' END,
+        'simulator','Scenario injected by acting leader') RETURNING id INTO event_id;
+    INSERT INTO decisions(astronaut_id,condition_event_id,rule_id,decision_type,actor,rationale,evidence,proposed_action,outcome)
+      VALUES(p_astronaut_id,event_id,rule_row.id,
+        CASE WHEN rule_row.response_tier=1 THEN 'tier1_auto' WHEN rule_row.response_tier=2 THEN 'tier2_dose'
+          WHEN p_condition_key IN ('low_oxygen','sensor_fault') THEN 'watch_event' ELSE 'tier3_medication' END,
+        'simulator','Scenario injected by acting leader',jsonb_build_object('condition',p_condition_key,'simulator',true),action_name,
+        CASE WHEN p_condition_key IN ('low_oxygen','sensor_fault') THEN 'accepted' ELSE 'proposed' END) RETURNING id INTO decision_id;
+    IF med_name IS NOT NULL THEN
+      SELECT id INTO med_id FROM medications WHERE lower(name)=med_name;
+      IF med_id IS NOT NULL THEN
+        INSERT INTO medication_events(astronaut_id,mission_id,medication_id,condition_event_id,decision_id,cancel_until,status,notes)
+          VALUES(p_astronaut_id,target.mission_id,med_id,event_id,decision_id,
+            CASE WHEN rule_row.response_tier=1 THEN now()+interval '15 seconds' ELSE NULL END,
+            CASE rule_row.response_tier WHEN 1 THEN 'proposed' WHEN 2 THEN 'awaiting_confirmation' ELSE 'crew_action_required' END,
+            'Simulator scenario; dose is unspecified pending medical review.') RETURNING id INTO medication_event_id;
+      END IF;
+    END IF;
+    IF rule_row.response_tier IN (1,3) THEN
+        INSERT INTO crew_alerts(condition_event_id,medication_event_id,recipient_id,alert_text,action_instructions)
+          SELECT event_id,medication_event_id,id,target.callsign||' needs help: '||p_condition_key,'Follow the on-board emergency protocol.'
+          FROM astronauts WHERE mission_id=target.mission_id AND active AND id<>p_astronaut_id
+          ON CONFLICT(condition_event_id,recipient_id) DO NOTHING;
+    END IF;
+    IF rule_row.response_tier=1 THEN
+      INSERT INTO mission_reports(mission_id,astronaut_id,report_type,summary,raw_data,flagged_issues)
+        VALUES(target.mission_id,p_astronaut_id,'emergency',p_condition_key||' simulator event',
+          jsonb_build_object('decisionId',decision_id,'conditionEventId',event_id),jsonb_build_array(p_condition_key));
+    END IF;
+    RETURN event_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION simulate_sensor_fault(p_astronaut_id UUID)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp AS $$
+DECLARE target astronauts%ROWTYPE; event_id UUID;
+BEGIN
+    SELECT * INTO target FROM astronauts WHERE id=p_astronaut_id AND active;
+    IF NOT FOUND OR acting_leader(target.mission_id) IS DISTINCT FROM app_astronaut_id() THEN
+        RAISE EXCEPTION 'Only the acting leader may simulate a sensor fault' USING ERRCODE='42501';
+    END IF;
+    INSERT INTO vital_samples(astronaut_id,observed_at,source,sensor_status,radiation_rate_unit,payload)
+      VALUES(p_astronaut_id,now(),'simulator','fault',chr(181)||'Sv/h','{"scenario":"sensor-fault"}'::jsonb);
+    event_id := simulate_condition(p_astronaut_id,'sensor_fault');
+    RETURN event_id;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+        EXECUTE 'CREATE ROLE app_user NOLOGIN';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'watch_service') THEN
+        EXECUTE 'CREATE ROLE watch_service NOLOGIN BYPASSRLS';
+    END IF;
+END $$;
+ALTER ROLE watch_service BYPASSRLS;
+DO $$ BEGIN
+    EXECUTE format('GRANT app_user, watch_service TO %I', session_user);
+END $$;
+GRANT USAGE ON SCHEMA public TO app_user, watch_service;
+REVOKE ALL ON FUNCTION acting_leader(UUID), decider_for(UUID), visible_astronauts(), app_astronaut_id(),
+    is_mission_crew(UUID), administer_alerted_medication(UUID,UUID), administer_watch_medication(UUID), simulate_condition(UUID,TEXT),
+    simulate_sensor_fault(UUID), set_mission_earth_link(UUID,UUID,BOOLEAN), set_mission_location(UUID,UUID,TEXT), schedule_mission_report_delivery() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION acting_leader(UUID), decider_for(UUID), visible_astronauts(), app_astronaut_id(), is_mission_crew(UUID), administer_alerted_medication(UUID,UUID), set_mission_earth_link(UUID,UUID,BOOLEAN), set_mission_location(UUID,UUID,TEXT) TO app_user, watch_service;
+GRANT EXECUTE ON FUNCTION administer_watch_medication(UUID) TO watch_service;
+GRANT EXECUTE ON FUNCTION simulate_condition(UUID,TEXT), simulate_sensor_fault(UUID) TO app_user;
+
+-- Every table is protected. Access is granted below only after RLS is enabled.
+DO $$ DECLARE t TEXT; BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'schema_migrations','missions','astronauts','accounts','sessions','command_handovers',
+        'rule_sets','rules','vital_samples','sleep_sessions','sleep_stages','check_ins',
+        'check_in_answers','agent_conversations','agent_messages','health_assessments',
+        'condition_events','crew_alerts','decisions','medications','medication_inventory',
+        'medication_events','treatment_plans','treatment_plan_items','mission_reports',
+        'mission_command_replies','lab_results'
+    ] LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+    END LOOP;
+END $$;
+
+CREATE POLICY mission_roster ON astronauts FOR SELECT TO app_user USING (is_mission_crew(mission_id));
+CREATE POLICY acting_leader_roster_update ON astronauts FOR UPDATE TO app_user
+    USING (acting_leader(mission_id) = app_astronaut_id())
+    WITH CHECK (mission_id = (SELECT mission_id FROM astronauts WHERE id = app_astronaut_id()));
+CREATE POLICY own_or_decider ON vital_samples FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY own_or_decider ON sleep_sessions FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY own_or_decider ON check_ins FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY own_or_decider ON agent_conversations FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY own_or_decider ON health_assessments FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY own_or_decider ON condition_events FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY own_decider_or_escalated ON decisions FOR SELECT TO app_user USING (
+    astronaut_id IN (SELECT visible_astronauts()) OR escalated_to_astronaut_id = app_astronaut_id()
+);
+CREATE POLICY own_or_decider ON medication_events FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY own_or_decider ON treatment_plans FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY escalated_plan_read ON treatment_plans FOR SELECT TO app_user USING (
+    EXISTS (SELECT 1 FROM decisions d WHERE d.escalated_to_astronaut_id=app_astronaut_id()
+        AND d.outcome IN ('proposed','accepted') AND d.evidence->>'treatmentPlanId'=treatment_plans.id::text)
+);
+CREATE POLICY own_or_decider ON lab_results FOR SELECT TO app_user USING (astronaut_id IN (SELECT visible_astronauts()));
+
+CREATE POLICY own_sleep_stages ON sleep_stages FOR SELECT TO app_user USING (
+    EXISTS (SELECT 1 FROM sleep_sessions s WHERE s.id = sleep_session_id AND s.astronaut_id IN (SELECT visible_astronauts()))
+);
+CREATE POLICY own_checkin_answers ON check_in_answers FOR SELECT TO app_user USING (
+    EXISTS (SELECT 1 FROM check_ins c WHERE c.id = check_in_id AND c.astronaut_id IN (SELECT visible_astronauts()))
+);
+CREATE POLICY own_agent_messages ON agent_messages FOR SELECT TO app_user USING (
+    EXISTS (SELECT 1 FROM agent_conversations c WHERE c.id = conversation_id AND c.astronaut_id = app_astronaut_id())
+);
+CREATE POLICY alert_visibility ON crew_alerts FOR SELECT TO app_user USING (
+    recipient_id = app_astronaut_id() OR EXISTS (
+        SELECT 1 FROM condition_events e WHERE e.id = condition_event_id
+          AND (e.astronaut_id = app_astronaut_id() OR decider_for(e.astronaut_id) = app_astronaut_id())
+    )
+);
+CREATE POLICY alert_ack ON crew_alerts FOR UPDATE TO app_user
+    USING (recipient_id = app_astronaut_id()) WITH CHECK (recipient_id = app_astronaut_id());
+CREATE POLICY own_or_decider ON treatment_plan_items FOR SELECT TO app_user USING (
+    EXISTS (SELECT 1 FROM treatment_plans p WHERE p.id = treatment_plan_id AND p.astronaut_id IN (SELECT visible_astronauts()))
+);
+CREATE POLICY own_or_decider_plan_item_insert ON treatment_plan_items FOR INSERT TO app_user WITH CHECK (
+    EXISTS (SELECT 1 FROM treatment_plans p WHERE p.id = treatment_plan_id AND p.astronaut_id IN (SELECT visible_astronauts()))
+);
+CREATE POLICY decider_plan_item_update ON treatment_plan_items FOR UPDATE TO app_user
+    USING (EXISTS (SELECT 1 FROM treatment_plans p WHERE p.id=treatment_plan_id AND decider_for(p.astronaut_id)=app_astronaut_id()))
+    WITH CHECK (EXISTS (SELECT 1 FROM treatment_plans p WHERE p.id=treatment_plan_id AND decider_for(p.astronaut_id)=app_astronaut_id()));
+CREATE POLICY escalated_plan_item_update ON treatment_plan_items FOR UPDATE TO app_user
+    USING (EXISTS (SELECT 1 FROM decisions d WHERE d.escalated_to_astronaut_id=app_astronaut_id()
+        AND d.outcome='accepted' AND d.evidence->>'treatmentPlanItemId'=treatment_plan_items.id::text))
+    WITH CHECK (EXISTS (SELECT 1 FROM decisions d WHERE d.escalated_to_astronaut_id=app_astronaut_id()
+        AND d.outcome='accepted' AND d.evidence->>'treatmentPlanItemId'=treatment_plan_items.id::text));
+
+CREATE POLICY crew_mission_read ON missions FOR SELECT TO app_user USING (is_mission_crew(id));
+CREATE POLICY crew_ruleset_read ON rule_sets FOR SELECT TO app_user USING (mission_id IS NULL OR is_mission_crew(mission_id));
+CREATE POLICY crew_rule_read ON rules FOR SELECT TO app_user USING (
+    EXISTS (SELECT 1 FROM rule_sets rs WHERE rs.id = rule_set_id AND (rs.mission_id IS NULL OR is_mission_crew(rs.mission_id)))
+);
+CREATE POLICY crew_medications_read ON medications FOR SELECT TO app_user USING (TRUE);
+CREATE POLICY crew_inventory_read ON medication_inventory FOR SELECT TO app_user USING (is_mission_crew(mission_id));
+CREATE POLICY crew_handovers_read ON command_handovers FOR SELECT TO app_user USING (is_mission_crew(mission_id));
+CREATE POLICY leader_handover_insert ON command_handovers FOR INSERT TO app_user WITH CHECK (
+    is_mission_crew(mission_id) AND (
+        acting_leader(mission_id) = app_astronaut_id() OR
+        (trigger = 'voluntary' AND from_astronaut_id = app_astronaut_id()
+         AND acting_leader(mission_id) = to_astronaut_id) OR
+        (trigger = 'restore' AND from_astronaut_id = app_astronaut_id()
+         AND acting_leader(mission_id) = to_astronaut_id)
+    )
+);
+CREATE POLICY weekly_leader_reports ON mission_reports FOR SELECT TO app_user USING (
+    (report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id()) OR
+    (report_type = 'emergency' AND (astronaut_id = app_astronaut_id() OR decider_for(astronaut_id) = app_astronaut_id()))
+);
+CREATE POLICY report_replies_read ON mission_command_replies FOR SELECT TO app_user USING (
+    EXISTS (SELECT 1 FROM mission_reports r WHERE r.id = report_id)
+);
+CREATE POLICY leader_report_insert ON mission_reports FOR INSERT TO app_user WITH CHECK (
+    report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id()
+);
+CREATE POLICY subject_emergency_report_insert ON mission_reports FOR INSERT TO app_user WITH CHECK (
+    report_type = 'emergency' AND (astronaut_id = app_astronaut_id() OR decider_for(astronaut_id) = app_astronaut_id())
+);
+
+-- App writes are intentionally narrow; cross-astronaut writes are reserved for watch_service.
+CREATE POLICY own_checkin_insert ON check_ins FOR INSERT TO app_user WITH CHECK (astronaut_id = app_astronaut_id());
+CREATE POLICY own_checkin_update ON check_ins FOR UPDATE TO app_user USING (astronaut_id = app_astronaut_id()) WITH CHECK (astronaut_id = app_astronaut_id());
+CREATE POLICY own_sleep_write ON sleep_sessions FOR ALL TO app_user USING (astronaut_id = app_astronaut_id()) WITH CHECK (astronaut_id = app_astronaut_id());
+CREATE POLICY own_answer_write ON check_in_answers FOR ALL TO app_user USING (
+    EXISTS (SELECT 1 FROM check_ins c WHERE c.id = check_in_id AND c.astronaut_id = app_astronaut_id())
+) WITH CHECK (
+    EXISTS (SELECT 1 FROM check_ins c WHERE c.id = check_in_id AND c.astronaut_id = app_astronaut_id())
+);
+CREATE POLICY own_chat_write ON agent_conversations FOR INSERT TO app_user WITH CHECK (astronaut_id = app_astronaut_id());
+CREATE POLICY own_chat_update ON agent_conversations FOR UPDATE TO app_user USING (astronaut_id = app_astronaut_id()) WITH CHECK (astronaut_id = app_astronaut_id());
+CREATE POLICY own_message_write ON agent_messages FOR INSERT TO app_user WITH CHECK (
+    EXISTS (SELECT 1 FROM agent_conversations c WHERE c.id = conversation_id AND c.astronaut_id = app_astronaut_id())
+);
+CREATE POLICY self_or_decider_lab_insert ON lab_results FOR INSERT TO app_user WITH CHECK (
+    astronaut_id IN (SELECT visible_astronauts()) AND entered_by_astronaut_id = app_astronaut_id()
+);
+CREATE POLICY self_or_decider_assessment_insert ON health_assessments FOR INSERT TO app_user WITH CHECK (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY self_or_decider_plan_insert ON treatment_plans FOR INSERT TO app_user WITH CHECK (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY self_or_decider_decision_insert ON decisions FOR INSERT TO app_user WITH CHECK (astronaut_id IN (SELECT visible_astronauts()));
+CREATE POLICY decider_decision_update ON decisions FOR UPDATE TO app_user
+    USING (decider_for(astronaut_id) = app_astronaut_id() OR escalated_to_astronaut_id = app_astronaut_id())
+    WITH CHECK (decided_by_astronaut_id = app_astronaut_id());
+CREATE POLICY self_dose_decision_update ON decisions FOR UPDATE TO app_user
+    USING (astronaut_id = app_astronaut_id() AND decision_type IN ('tier1_auto','tier2_dose'))
+    WITH CHECK (decided_by_astronaut_id = app_astronaut_id() AND outcome IN ('accepted','cancelled'));
+CREATE POLICY decider_plan_update ON treatment_plans FOR UPDATE TO app_user
+    USING (astronaut_id IN (SELECT id FROM astronauts WHERE decider_for(id) = app_astronaut_id()))
+    WITH CHECK (approved_by_astronaut_id = app_astronaut_id());
+CREATE POLICY escalated_plan_update ON treatment_plans FOR UPDATE TO app_user
+    USING (EXISTS (SELECT 1 FROM decisions d WHERE d.escalated_to_astronaut_id=app_astronaut_id()
+        AND d.outcome='accepted' AND d.evidence->>'treatmentPlanId'=treatment_plans.id::text))
+    WITH CHECK (approved_by_astronaut_id = app_astronaut_id());
+CREATE POLICY own_medication_update ON medication_events FOR UPDATE TO app_user
+    USING (astronaut_id = app_astronaut_id()) WITH CHECK (astronaut_id = app_astronaut_id());
+CREATE POLICY decider_medication_update ON medication_events FOR UPDATE TO app_user
+    USING (decider_for(astronaut_id) = app_astronaut_id() OR decision_id IN (
+        SELECT id FROM decisions WHERE escalated_to_astronaut_id = app_astronaut_id()
+    ))
+    WITH CHECK (confirmed_by_astronaut_id = app_astronaut_id() OR administered_by_astronaut_id = app_astronaut_id() OR EXISTS (
+        SELECT 1 FROM decisions d WHERE d.id=decision_id AND d.decided_by_astronaut_id=app_astronaut_id()
+          AND d.outcome IN ('accepted','rejected')
+    ));
+CREATE POLICY alerted_crew_medication_update ON medication_events FOR UPDATE TO app_user
+    USING (EXISTS (SELECT 1 FROM crew_alerts ca WHERE ca.condition_event_id = medication_events.condition_event_id
+        AND ca.recipient_id = app_astronaut_id() AND ca.status IN ('pending','acknowledged')))
+    WITH CHECK (EXISTS (SELECT 1 FROM crew_alerts ca WHERE ca.condition_event_id = medication_events.condition_event_id
+        AND ca.recipient_id = app_astronaut_id() AND ca.status IN ('pending','acknowledged')));
+
+CREATE POLICY auth_account_read ON accounts FOR SELECT TO app_user USING (TRUE);
+CREATE POLICY auth_account_update ON accounts FOR UPDATE TO app_user USING (TRUE) WITH CHECK (TRUE);
+CREATE POLICY session_read ON sessions FOR SELECT TO app_user USING (
+    token_hash = NULLIF(current_setting('app.session_hash', true), '') OR astronaut_id = app_astronaut_id()
+);
+CREATE POLICY session_write ON sessions FOR ALL TO app_user USING (astronaut_id = app_astronaut_id()) WITH CHECK (astronaut_id = app_astronaut_id());
+CREATE POLICY session_create ON sessions FOR INSERT TO app_user WITH CHECK (TRUE);
+CREATE POLICY session_logout ON sessions FOR DELETE TO app_user USING (
+    astronaut_id = app_astronaut_id() OR token_hash = NULLIF(current_setting('app.session_hash', true), '')
+);
+
+GRANT SELECT ON missions, astronauts, rule_sets, rules, vital_samples, sleep_sessions, sleep_stages,
+    check_ins, check_in_answers, agent_conversations, agent_messages, health_assessments,
+    condition_events, crew_alerts, decisions, medications, medication_inventory, medication_events,
+    treatment_plans, treatment_plan_items, mission_reports, mission_command_replies, lab_results,
+    command_handovers, accounts, sessions TO app_user;
+GRANT INSERT, UPDATE ON check_ins, check_in_answers, agent_conversations, agent_messages, lab_results,
+    crew_alerts, decisions, treatment_plans, treatment_plan_items, medication_events, sessions, accounts,
+    astronauts, command_handovers, mission_reports TO app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO watch_service;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user, watch_service;
+
+-- Demo crew, in the agreed chain: Elena, Kwame, Hiro, Maya. Credentials are provisioned separately.
+INSERT INTO missions (id, name, destination, earth_round_trip_seconds, status)
+VALUES ('11111111-1111-4111-8111-111111111111', 'Ares demo mission', 'Mars', 1500, 'active')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, destination = EXCLUDED.destination,
+    earth_round_trip_seconds = EXCLUDED.earth_round_trip_seconds, status = EXCLUDED.status;
+INSERT INTO astronauts (id, mission_id, callsign, display_name, role, command_rank, fit_for_command)
+VALUES
+ ('22222222-2222-4222-8222-222222222221','11111111-1111-4111-8111-111111111111','ELENA','Elena Ruiz','commander',1,TRUE),
+ ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','KWAME','Kwame Mensah','crew',2,TRUE),
+ ('22222222-2222-4222-8222-222222222223','11111111-1111-4111-8111-111111111111','HIRO','Hiro Nakamura','crew',3,TRUE),
+ ('22222222-2222-4222-8222-222222222224','11111111-1111-4111-8111-111111111111','MAYA','Maya Okafor','crew',4,TRUE)
+ON CONFLICT (id) DO UPDATE SET mission_id=EXCLUDED.mission_id, callsign=EXCLUDED.callsign,
+    display_name=EXCLUDED.display_name, role=EXCLUDED.role, command_rank=EXCLUDED.command_rank,
+    fit_for_command=EXCLUDED.fit_for_command;
+
+INSERT INTO rule_sets (id, mission_id, name, version, source_notes, status)
+VALUES ('33333333-3333-4333-8333-333333333333','11111111-1111-4111-8111-111111111111',
+        'watch','1.0','Seeded from watch/rules.json; thresholds and treatments require medical review.','active')
+ON CONFLICT (mission_id, name, version) WHERE mission_id IS NOT NULL DO UPDATE SET status='active';
+INSERT INTO rules (rule_set_id, rule_key, condition_key, description, criteria, response_tier)
+SELECT rs.id, seed.rule_key, seed.condition_key, seed.description, seed.criteria::jsonb, seed.response_tier
+FROM rule_sets rs CROSS JOIN (VALUES
+ ('shock','shock','Systolic pressure below shock threshold','{"flag":"bp_shock"}',1),
+ ('bradycardia','bradycardia','Heart rate below low threshold','{"flag":"hr_low"}',1),
+ ('radiation_sickness','radiation_sickness','Radiation rate above location baseline','{"flag":"radiation_high"}',3),
+ ('low_oxygen','low_oxygen','Blood oxygen below threshold','{"flag":"spo2_low"}',3),
+ ('panic_attack','panic_attack','High heart rate during stress activity','{"flag":"hr_high","states":["stress"]}',2),
+ ('tachycardia','tachycardia','High heart rate during rest activity','{"flag":"hr_high","states":["rest"]}',3),
+ ('low_bp','low_bp','Systolic pressure below low threshold','{"flag":"bp_low"}',3),
+ ('high_bp','high_bp','Systolic pressure above high threshold','{"flag":"bp_high"}',3),
+ ('fever','fever','Body temperature above threshold','{"flag":"temp_high"}',3),
+ ('sensor_fault','sensor_fault','One or more sensor values are invalid','{"flag":"sensor_fault"}',3)
+) AS seed(rule_key,condition_key,description,criteria,response_tier)
+WHERE rs.mission_id='11111111-1111-4111-8111-111111111111' AND rs.name='watch' AND rs.version='1.0'
+ON CONFLICT (rule_set_id,rule_key) DO UPDATE SET condition_key=EXCLUDED.condition_key,
+    description=EXCLUDED.description,criteria=EXCLUDED.criteria,response_tier=EXCLUDED.response_tier;
+
+INSERT INTO medications (name, route, watch_injectable, stock_unit, notes) VALUES
+ ('atropine','injection',TRUE,'dose','From watch/rules.json; medical review required.'),
+ ('epinephrine','injection',TRUE,'dose','From watch/rules.json; medical review required.'),
+ ('ondansetron','injection',TRUE,'dose','From watch/rules.json; medical review required.'),
+ ('filgrastim','injection',TRUE,'dose','From watch/rules.json; medical review required.'),
+ ('supplemental oxygen','other',FALSE,'dose','From watch/rules.json; medical review required.'),
+ ('lorazepam','injection',TRUE,'dose','From watch/rules.json; medical review required.'),
+ ('midazolam','injection',TRUE,'dose','From watch/rules.json; medical review required.'),
+ ('adenosine','iv',FALSE,'dose','From watch/rules.json; medical review required.'),
+ ('metoprolol','iv',FALSE,'dose','From watch/rules.json; medical review required.'),
+ ('midodrine','oral',FALSE,'dose','From watch/rules.json; medical review required.'),
+ ('labetalol','iv',FALSE,'dose','From watch/rules.json; medical review required.'),
+ ('nicardipine','iv',FALSE,'dose','From watch/rules.json; medical review required.'),
+ ('captopril','oral',FALSE,'dose','From watch/rules.json; medical review required.'),
+ ('acetaminophen','oral',FALSE,'dose','From watch/rules.json; medical review required.')
+ON CONFLICT (name) DO UPDATE SET route=EXCLUDED.route, watch_injectable=EXCLUDED.watch_injectable,
+    stock_unit=EXCLUDED.stock_unit, notes=EXCLUDED.notes;
+
 INSERT INTO schema_migrations(version, description)
-VALUES (1, 'Initial PostgreSQL astronaut health monitoring schema')
+VALUES (1, 'Initial PostgreSQL astronaut health monitoring schema with chain of command and RLS')
 ON CONFLICT (version) DO NOTHING;
 
 COMMIT;

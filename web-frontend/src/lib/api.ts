@@ -58,7 +58,7 @@ function mental(v: unknown): MentalCheck | null {
 
 const SOURCES: RootCause['factors'][number]['source'][] = ['Check-in', 'Sleep', 'Mental health', '24 h vitals'];
 const KINDS: PlanItem['kind'][] = ['medication', 'sleep', 'therapy', 'exercise', 'diet'];
-const APPROVALS: PlanItem['approval'][] = ['not-required', 'pending-mission-command', 'approved', 'changed-by-mission-command'];
+const APPROVALS: PlanItem['approval'][] = ['not-required', 'pending-team-leader', 'approved', 'changed-by-team-leader'];
 
 export const agentApi = {
   async health(signal?: AbortSignal): Promise<BackendHealth> {
@@ -99,7 +99,7 @@ export const agentApi = {
       kind: KINDS.includes(p.kind as never) ? (p.kind as PlanItem['kind']) : 'exercise',
       text: String(p.text ?? ''),
       urgent: p.urgent === true,
-      approval: APPROVALS.includes(p.approval as never) ? (p.approval as PlanItem['approval']) : p.urgent === true && p.kind !== 'medication' ? 'not-required' : 'pending-mission-command', // same rule as overview/agent.py: medication always waits
+      approval: APPROVALS.includes(p.approval as never) ? (p.approval as PlanItem['approval']) : p.urgent === true && p.kind !== 'medication' ? 'not-required' : 'pending-team-leader', // medication plan items always wait for the on-board decider
     })).filter((p) => p.text);
     return {
       rootCause: { date: typeof rc.date === 'string' ? rc.date : input.date, problem: str(rc.problem, 'the problem'), confidence: Math.max(0, Math.min(1, Number(rc.confidence) || 0)), factors },

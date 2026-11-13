@@ -10,7 +10,7 @@ const STOPS: Location[] = ['iss', 'moon', 'mars'];
 
 /**
  * Feature 20: distance from Earth. The further out, the longer Earth takes to answer, which delays
- * non-urgent plan approval (4), weekly and emergency reports (6) and mission command replies.
+ * weekly and emergency reports (6) and mission command replies; treatment approval happens on board.
  */
 export function MarsDelayBar() {
   const { s, dispatch } = useMission();

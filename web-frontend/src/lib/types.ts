@@ -144,8 +144,8 @@ export interface PlanItem {
   kind: PlanItemKind;
   text: string;
   urgent: boolean;
-  /** Urgent proceeds with no approval; non-urgent waits for mission command. */
-  approval: 'not-required' | 'pending-mission-command' | 'approved' | 'changed-by-mission-command';
+  /** Urgent non-medication items proceed directly; other items wait for the decider. */
+  approval: 'not-required' | 'pending-team-leader' | 'approved' | 'changed-by-team-leader';
   missionCommandNote?: string;
 }
 

@@ -1,12 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { preload } from 'react-dom';
 import './globals.css';
-import { MissionProvider } from '@/lib/mission';
-import { BackendProvider } from '@/lib/backend';
-import { Header } from '@/components/Header';
-import { GlobalAlerts } from '@/components/GlobalAlerts';
-import { MarsDelayBar } from '@/components/MarsDelayBar';
-import { HeartbeatPlayer } from '@/components/Heartbeat';
+import { BackendShell } from '@/components/BackendShell';
 
 export const metadata: Metadata = {
   title: { default: 'Crew Health', template: '%s · Crew Health' },
@@ -23,15 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <a href="#main" className="skip-link">Skip to content</a>
-        <BackendProvider>
-          <MissionProvider>
-            <Header />
-            <MarsDelayBar />
-            <GlobalAlerts />
-            <main id="main" className="mx-auto max-w-[1680px] px-4 pb-20 pt-6 md:px-8">{children}</main>
-            <HeartbeatPlayer />
-          </MissionProvider>
-        </BackendProvider>
+        <BackendShell>{children}</BackendShell>
       </body>
     </html>
   );

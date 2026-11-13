@@ -184,7 +184,7 @@ export function useAgent() {
               vitals24h: vitalsSummary(st, c.id),
               watchEvents: st.events.filter((e) => e.astronautId === c.id && !e.suppressed).map((e) => ({ condition: CONDITIONS[e.condition].label, state: e.state })),
               underlyingProblem: rootCauseFor(st, c.id).problem,
-              planItemsAwaitingApproval: st.plans[c.id].filter((p) => p.approval === 'pending-mission-command').length,
+              planItemsAwaitingApproval: st.plans[c.id].filter((p) => p.approval === 'pending-team-leader').length,
             };
           }),
         });

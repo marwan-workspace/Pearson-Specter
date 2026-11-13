@@ -1,6 +1,6 @@
 # Backend and access plan
 
-Status: plan only. Nothing here is built. Items marked **Proposed** were the planner's calls; the team has since accepted them, see [Decisions](#decisions).
+Status: JavaScript API, PostgreSQL schema, Python worker bridge, and dashboard integration are implemented. Database application and runtime setup remain environment steps.
 
 ## What changes
 
@@ -14,11 +14,12 @@ Status: plan only. Nothing here is built. Items marked **Proposed** were the pla
 
 | Part | State |
 |---|---|
-| `database/schema.sql` | 24 tables, never applied. No users, no access rules. `astronauts.role` allows `crew`, `medical_officer`, `commander`. |
-| `watch/`, `overview/`, `llm.py` | Working Python: watch decisions and manager agent, JSON in and out. Nothing is stored. |
-| `web-frontend/` | All state lives in the browser (`lib/mission.tsx`, `localStorage`). Everyone sees the crew overview. One real server piece exists: `/api/agent/*`, which runs `python -m overview` or forwards to `AGENT_BACKEND_URL` (expects `POST /<command>` and `GET /health` on port 8000). |
+| `database/schema.sql` | PostgreSQL schema includes accounts, sessions, command rank, chain-of-command functions, report timing, medication inventory, and RLS. |
+| `watch/`, `overview/`, `llm.py` | Existing Python watch and manager-agent modules run as workers called by the JavaScript service. |
+| `backend/` | Node.js HTTP API persists web and worker results with `pg`. |
+| `web-frontend/` | Session-gated dashboard uses `/backend/*` for private records, crew overview, decisions, alerts, reports, lab entry, and command controls. |
 
-That `/api/agent/*` route only accepts the five agent commands as POST and forwards no cookie, so it cannot carry this backend. Instead, one `rewrites` entry in `web-frontend/next.config.ts` forwards `/backend/*` to port 8000; cookies pass through and no route code is needed. `/api/agent/*` keeps working for the simulated dashboard until step 6 switches the screens to `/backend/*`.
+One `rewrites` entry in `web-frontend/next.config.ts` forwards `/backend/*` to port 8000; cookies pass through. The legacy `/api/agent/*` route remains available but is not the authenticated dashboard data path.
 
 ## Access model
 
@@ -126,7 +127,7 @@ CREATE POLICY own_or_decider ON vital_samples
 
 ## Backend
 
-**Proposed stack:** one Python service (FastAPI, psycopg) on port 8000. It imports `watch` and `overview` directly, so no subprocess per request, and the dashboard reaches it through the `/backend/*` rewrite. New dependencies: `fastapi`, `uvicorn`, `psycopg`.
+**Stack:** one JavaScript service (`backend/server.js`, Node.js and `pg`) on port 8000. The dashboard reaches it through the `/backend/*` rewrite. It calls the existing `overview` and `watch` Python modules as workers so their validated behavior remains shared. Install backend dependencies with `npm install` in `backend/`; install Python dependencies from `requirements.txt`.
 
 **Login:** login name plus PIN per astronaut. Five wrong PINs in a row lock the account until the acting leader unlocks it (the leader's own account is unlocked by their decider); a correct PIN resets the count. The server keeps sessions in the database and sets a cookie. The `/backend/*` rewrite passes that cookie through, so the browser still talks only to the dashboard.
 
@@ -137,14 +138,14 @@ CREATE POLICY own_or_decider ON vital_samples
 | Area | Endpoints | Who |
 |---|---|---|
 | Login | `POST /auth/login`, `POST /auth/logout`, `GET /me` (who am I, am I acting leader, whose decider am I) | Anyone |
-| My data | `GET /astronauts/{id}/vitals`, `/sleep`, `/mental`, `/checkins`, `/assessment`, `/plan`, `/medications`, `/labs`, `/events`. Each takes `?since=<time>` and returns only newer rows | Self or decider |
+| My data | `GET /astronauts/{id}/vitals`, `/sleep`, `/mental`, `/checkins`, `/assessment`, `/plan`, `/medications`, `/labs`, `/events`, `/decisions`. Each takes `?since=<time>` and returns only newer rows | Self or decider |
 | Crew overview | `GET /crew/overview` | Acting leader |
 | Decisions | `GET /decisions/pending`, `POST /decisions/{id}` (approve or reject) | Decider |
 | Watch events | `POST /events/{id}/cancel`, `/confirm` (self); `/given` (alerted crewmate) | See table above |
 | Alerts | `GET /alerts`, `POST /alerts/{id}/ack` | Recipient |
-| Command | `GET /command` (chain, acting leader, log), `POST /command/handover`, `POST /command/restore`, `POST /accounts/{id}/unlock` | Crew read; leader acts |
+| Command | `GET /command` (chain, acting leader, log), `POST /command/handover`, `/command/restore`, `/command/earth-link`, `/command/location`, `POST /accounts/{id}/unlock` | Crew read; leader acts |
 | Agent | `GET /health`, `POST /checkin`, `/chat`, `/assess`, `/weekly`, `/emergency` (same JSON as today; the server now loads the data itself and stores the result) | Self, or decider for `/assess`; `astronautId` is checked against the session; weekly is leader only |
-| Reports | `GET /reports`, `GET /reports/{id}` | By the access table |
+| Reports | `GET /reports`, `GET /reports/{id}` | By the access table; link loss queues reports, location sets round-trip timing, and the demo worker records simulated acknowledgments |
 | Demo | `POST /simulator/inject`, `POST /simulator/sensor-fault` | Acting leader |
 
 **Watch loop:** one background task. Each tick, for each astronaut: take a simulated reading, store it, run `watch.detect` and `watch.decide`, and store the outcome (event, decision, medication event with its cancel deadline, crewmate alerts, emergency report). The last-dose lockout is read from `medication_events`, which fixes the audit finding that it was lost between processes. The same loop checks whether the leader is still fit and whether any decision has timed out.
@@ -158,7 +159,7 @@ CREATE POLICY own_or_decider ON vital_samples
 | 8 Root cause, 4 Treatment plan | `POST /assess` after a completed check-in; plan items wait in the decider's queue |
 | 7 Watch, 10 Simulator, 19 Sensor fault | Watch loop |
 | 11 Crewmate alert | `crew_alerts` rows and `/alerts` |
-| 12 Medication log and stock | `medication_events`, `medication_inventory`, updated in one transaction |
+| 12 Medication log and stock | `medication_events`, `medication_inventory`; stock starts empty, and administration requires reviewed quantity plus matching inventory |
 | 6 Weekly and emergency reports, 18 Offline, 20 Mars delay | `mission_reports` queue with send and reply times |
 | 9 Manager agent chat | `POST /chat` with context loaded by the server |
 | 16 Crew overview | `GET /crew/overview`, acting leader only |
