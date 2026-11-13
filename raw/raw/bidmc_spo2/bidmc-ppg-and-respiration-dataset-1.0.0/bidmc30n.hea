@@ -1,6 +1,3 @@
-bidmc30n 4 1 481
-bidmc30n.dat 16 7281.5556(-644418)/bpm 0 0 10922 10704 0 HR, 
-bidmc30n.dat 16 8191.75(-720874)/bpm 0 0 8192 24574 0 PULSE, 
-bidmc30n.dat 16 13106.8(-255583)/pm 0 0 -6554 19570 0 RESP, 
-bidmc30n.dat 16 16383.5(-1572816)/% 0 0 -32767 36 0 SpO2, 
-#<age>: 48 <sex>: F <location>: micu <source>: http://physionet.org/physiobank/database/mimic2wdb/matched/s17497/3355824n.dat <modifications>: this is not a verbatim copy of an original file. Please see the accompanying LICENSE.txt file for further details.
+version https://git-lfs.github.com/spec/v1
+oid sha256:97da95ba875ed4c150c993d6b7fafea8c68c00f04ad4a3b689cdca7c3873aca6
+size 518

@@ -1,6 +1,3 @@
-bidmc09n 4 1 481
-bidmc09n.dat 16 10922.3333(-851942)/bpm 0 0 -10922 216 0 HR, 
-bidmc09n.dat 16 16383.5(-1261530)/bpm 0 0 -1 16151 0 PULSE, 
-bidmc09n.dat 16 1638.35(-32767)/pm 0 0 0 0 0 RESP, 
-bidmc09n.dat 16 352.3333(-32767)/% 0 0 0 0 0 SpO2, 
-#<age>: 64 <sex>: F <location>: micu <source>: http://physionet.org/physiobank/database/mimic2wdb/matched/s03386/3798249n.dat <modifications>: this is not a verbatim copy of an original file. Please see the accompanying LICENSE.txt file for further details.
+version https://git-lfs.github.com/spec/v1
+oid sha256:1480b4c8a3c0410364da246b99d37ebd675c1c91b704dca5cf37557b9b8962e0
+size 501
