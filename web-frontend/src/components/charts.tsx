@@ -23,7 +23,7 @@ const tick = (t: number) => fmtTime(t);
 function Tip({ active, payload, label, unit, fmt }: { active?: boolean; payload?: { name?: string; value?: number | string; color?: string }[]; label?: number | string; unit?: string; fmt?: (l: number | string) => string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-line-strong bg-space-2 px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-[4px] border border-line-strong bg-space-2 px-3 py-2 text-xs shadow-[0_12px_32px_rgba(0,0,0,0.6)]">
       <p className="mb-1 font-semibold">{fmt ? fmt(label!) : typeof label === 'number' ? `${fmtTime(label)} UTC` : label}</p>
       {payload.map((p) => (
         <p key={p.name} className="flex items-center justify-between gap-4">
@@ -106,10 +106,10 @@ export function BPChart({ data, baseline, height = 170 }: { data: VitalSample[];
 }
 
 export const STAGE: Record<SleepStage, { label: string; color: string; y: number }> = {
-  awake: { label: 'Awake', color: '#fc3d21', y: 3 },
-  rem: { label: 'REM', color: '#36c9b4', y: 2 },
-  light: { label: 'Light', color: '#7fb0ff', y: 1 },
-  deep: { label: 'Deep', color: '#1f4fb8', y: 0 },
+  awake: { label: 'Awake', color: '#f2b84b', y: 3 },
+  rem: { label: 'REM', color: '#5fd3c4', y: 2 },
+  light: { label: 'Light', color: '#8db6ff', y: 1 },
+  deep: { label: 'Deep', color: '#2f5fd0', y: 0 },
 };
 const ORDER: SleepStage[] = ['deep', 'light', 'rem', 'awake'];
 
@@ -121,7 +121,7 @@ export function Hypnogram({ night, height = 150 }: { night: SleepNight; height?:
         <CartesianGrid vertical={false} />
         <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} tickFormatter={tick} tickLine={false} minTickGap={40} />
         <YAxis type="number" domain={[0, 3]} ticks={[0, 1, 2, 3]} tickFormatter={(v: number) => STAGE[ORDER[v]].label} tickLine={false} axisLine={false} width={46} />
-        <Tooltip content={({ active, payload }) => (active && payload?.length ? <div className="rounded-lg border border-line-strong bg-space-2 px-3 py-2 text-xs">{fmtTime(payload[0].payload.t)} UTC · <b>{payload[0].payload.stage}</b></div> : null)} />
+        <Tooltip content={({ active, payload }) => (active && payload?.length ? <div className="rounded-[4px] border border-line-strong bg-space-2 px-3 py-2 text-xs">{fmtTime(payload[0].payload.t)} UTC · <b>{payload[0].payload.stage}</b></div> : null)} />
         <Line type="stepAfter" dataKey="y" stroke="var(--chart-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>
@@ -154,8 +154,8 @@ export function MentalTrend({ checks, height = 170 }: { checks: MentalCheck[]; h
       <AreaChart data={checks.map((c) => ({ date: c.date.slice(5), score: c.score }))} margin={{ top: 6, right: 8, bottom: 0, left: -4 }}>
         <defs>
           <linearGradient id="g-mh" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="var(--agent)" stopOpacity={0.35} />
-            <stop offset="1" stopColor="var(--agent)" stopOpacity={0} />
+            <stop offset="0" stopColor="var(--chart-1)" stopOpacity={0.3} />
+            <stop offset="1" stopColor="var(--chart-1)" stopOpacity={0} />
           </linearGradient>
         </defs>
         <CartesianGrid vertical={false} />
@@ -164,7 +164,7 @@ export function MentalTrend({ checks, height = 170 }: { checks: MentalCheck[]; h
         <XAxis dataKey="date" tickLine={false} minTickGap={20} />
         <YAxis domain={[0, 100]} tickLine={false} axisLine={false} width={48} />
         <Tooltip content={<Tip fmt={(l) => String(l)} />} />
-        <Area type="monotone" dataKey="score" name="Score" stroke="var(--agent)" strokeWidth={2} fill="url(#g-mh)" dot={{ r: 2.5, fill: 'var(--agent)' }} isAnimationActive={false} />
+        <Area type="monotone" dataKey="score" name="Score" stroke="var(--chart-1)" strokeWidth={2} fill="url(#g-mh)" dot={{ r: 2.5, fill: 'var(--chart-1)' }} isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   );
