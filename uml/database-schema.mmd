@@ -1,71 +1,75 @@
 ---
 references:
   - "File: /database/schema.sql"
-generationTime: 2026-11-13T15:08:51.069Z
 ---
 erDiagram
-    SCHEMA_MIGRATIONS {
-        int version PK
-        timestamptz applied_at
-        string description
-    }
     MISSIONS {
         uuid id PK
         string name
         string destination
-        int earth_round_trip_seconds
-        string status "planned, active, completed"
-        timestamptz created_at
+        float earth_round_trip_seconds
+        boolean earth_link_available
+        int earth_review_seconds
+        string status
     }
     ASTRONAUTS {
         uuid id PK
         uuid mission_id FK
         string callsign
         string display_name
-        string role "crew, medical_officer, commander"
+        int command_rank
+        boolean fit_for_command
         boolean active
-        timestamptz joined_at
+    }
+    ACCOUNTS {
+        uuid id PK
+        uuid astronaut_id FK
+        string login UK
+        string pin_hash
+        int failed_attempts
+        boolean locked
+    }
+    SESSIONS {
+        uuid id PK
+        uuid astronaut_id FK
+        string token_hash UK
+        timestamptz expires_at
+    }
+    COMMAND_HANDOVERS {
+        uuid id PK
+        uuid mission_id FK
+        uuid from_astronaut_id FK
+        uuid to_astronaut_id FK
+        uuid decision_id FK
+        string trigger
+        string reason
     }
     RULE_SETS {
         uuid id PK
         uuid mission_id FK
         string name
         string version
-        string source_notes
-        string status "draft, active, retired"
-        timestamptz created_at
+        string status
     }
     RULES {
         uuid id PK
         uuid rule_set_id FK
-        string rule_key
         string condition_key
-        string description
+        int response_tier
         jsonb criteria
-        smallint response_tier "1 to 3"
+        jsonb response
         boolean enabled
     }
     VITAL_SAMPLES {
         uuid id PK
         uuid astronaut_id FK
         timestamptz observed_at
-        timestamptz received_at
-        string source "simulator, watch, manual, replay"
-        string activity "rest, walk, exercise, sleep, unknown"
         float heart_rate_bpm
         float systolic_mmhg
         float diastolic_mmhg
         float spo2_percent
-        float temperature_c
-        float breathing_rate_bpm
         float radiation_rate
-        string radiation_rate_unit
-        float skin_temperature_c
-        float skin_conductance
-        float motion_value
-        float stress_value
-        string sensor_status "ok, suspect, detached, fault"
-        string scenario_key
+        string sensor_status
         jsonb payload
     }
     SLEEP_SESSIONS {
@@ -73,113 +77,95 @@ erDiagram
         uuid astronaut_id FK
         timestamptz started_at
         timestamptz ended_at
-        string source "watch, check_in, manual, simulator"
         float reported_hours
-        int cycles_count
         float quality_score
-        string notes
-    }
-    SLEEP_STAGES {
-        uuid id PK
-        uuid sleep_session_id FK
-        string stage "awake, light, deep, rem, unknown"
-        timestamptz started_at
-        timestamptz ended_at
     }
     CHECK_INS {
         uuid id PK
         uuid astronaut_id FK
-        date check_in_date "unique per astronaut"
-        timestamptz started_at
-        timestamptz completed_at
-        string status "in_progress, completed, missed, incomplete"
-        date covers_previous_date
-        float mood_score
+        date check_in_date
+        string status
         float mental_health_score
-        string reported_symptoms
         string agent_summary
+        jsonb transcript
     }
     CHECK_IN_ANSWERS {
         uuid id PK
         uuid check_in_id FK
         string question_key
-        string question_version
         string answer_text
         float answer_number
-        timestamptz answered_at
     }
     AGENT_CONVERSATIONS {
         uuid id PK
         uuid astronaut_id FK
-        timestamptz started_at
-        timestamptz ended_at
-        string channel "dashboard, watch, other"
-        string status "open, closed, handed_off"
+        string channel
+        string status
+        string summary
     }
     AGENT_MESSAGES {
         uuid id PK
         uuid conversation_id FK
-        timestamptz sent_at
-        string speaker "astronaut, manager_agent, watch_agent, mission_command"
+        string speaker
         string message_text
-        jsonb metadata
     }
     HEALTH_ASSESSMENTS {
         uuid id PK
         uuid astronaut_id FK
-        uuid check_in_id FK
         timestamptz assessed_at
-        timestamptz window_start
-        timestamptz window_end
-        float vitals_score
         string root_cause_summary
         jsonb contributing_data
-        string urgency "routine, urgent, emergency"
+        string urgency
+    }
+    TREATMENT_PLANS {
+        uuid id PK
+        uuid astronaut_id FK
+        uuid health_assessment_id FK
+        string created_by
+        string status
+        string rationale
+        uuid approved_by_astronaut_id FK
+    }
+    TREATMENT_PLAN_ITEMS {
+        uuid id PK
+        uuid treatment_plan_id FK
+        uuid medication_id FK
+        string action_type
+        string description
+        string status
     }
     CONDITION_EVENTS {
         uuid id PK
         uuid astronaut_id FK
-        timestamptz started_at
-        timestamptz ended_at
         string condition_key
-        string severity "low, moderate, high, critical"
-        string status "open, monitoring, resolved, false_alarm"
-        string reported_by "watch, astronaut, crewmate, agent, simulator"
-        string astronaut_report
+        string severity
+        string status
         string summary
-    }
-    CREW_ALERTS {
-        uuid id PK
-        uuid condition_event_id FK
-        uuid recipient_id FK
-        timestamptz created_at
-        timestamptz acknowledged_at
-        string alert_text
-        string action_instructions
-        string status "pending, acknowledged, resolved, cancelled"
     }
     DECISIONS {
         uuid id PK
         uuid astronaut_id FK
         uuid condition_event_id FK
         uuid rule_id FK
-        timestamptz decided_at
+        uuid escalated_to_astronaut_id FK
         string decision_type
-        string actor "watch_llm, manager_agent, crew, mission_command, simulator"
+        string outcome
         string rationale
-        jsonb evidence
-        string proposed_action
-        string outcome "proposed, accepted, rejected, cancelled, completed, superseded"
-        uuid supersedes_id FK
+    }
+    CREW_ALERTS {
+        uuid id PK
+        uuid condition_event_id FK
+        uuid medication_event_id FK
+        uuid recipient_id FK
+        string status
+        string action_instructions
     }
     MEDICATIONS {
         uuid id PK
         string name UK
-        string route "injection, iv, oral, other"
-        boolean watch_injectable
+        string route
         string stock_unit
-        boolean active
-        string notes
+        boolean watch_injectable
     }
     MEDICATION_INVENTORY {
         uuid id PK
@@ -188,63 +174,27 @@ erDiagram
         string lot_code
         decimal quantity_on_hand
         date expires_on
-        timestamptz updated_at
     }
     MEDICATION_EVENTS {
         uuid id PK
         uuid astronaut_id FK
-        uuid mission_id FK
         uuid medication_id FK
         uuid condition_event_id FK
         uuid decision_id FK
-        timestamptz proposed_at
-        timestamptz cancel_until
-        timestamptz confirmed_at
-        timestamptz administered_at
-        timestamptz cancelled_at
-        string status "proposed, awaiting_confirmation, confirmed, cancelled, administered, crew_action_required, declined"
         decimal quantity
         string quantity_unit
-        string administered_by
-        string notes
-    }
-    TREATMENT_PLANS {
-        uuid id PK
-        uuid astronaut_id FK
-        uuid health_assessment_id FK
-        string created_by "manager_agent, medical_officer, mission_command"
-        timestamptz created_at
-        string urgency "routine, urgent, emergency"
-        string status "draft, awaiting_approval, approved, rejected, active, completed, cancelled"
-        string rationale
-        string approved_by
-        timestamptz approved_at
-        timestamptz earth_reply_due_at
-    }
-    TREATMENT_PLAN_ITEMS {
-        uuid id PK
-        uuid treatment_plan_id FK
-        int position
-        string action_type "medication, sleep, therapy, exercise, diet, monitoring, other"
-        string description
-        uuid medication_id FK
-        timestamptz starts_at
-        timestamptz ends_at
-        string status "planned, in_progress, completed, skipped, cancelled"
+        string status
+        timestamptz cancel_until
     }
     MISSION_REPORTS {
         uuid id PK
         uuid mission_id FK
         uuid astronaut_id FK
-        string report_type "weekly, emergency"
-        timestamptz created_at
-        date period_start
-        date period_end
-        string status "queued, sent, acknowledged, replied"
-        string summary
-        jsonb raw_data
-        jsonb flagged_issues
+        string report_type
+        string status
         timestamptz sent_at
+        timestamptz arrives_at
+        timestamptz reply_due_at
     }
     MISSION_COMMAND_REPLIES {
         uuid id PK
@@ -252,53 +202,45 @@ erDiagram
         timestamptz received_at
         string sender
         string message
-        jsonb instructions
     }
     LAB_RESULTS {
         uuid id PK
         uuid astronaut_id FK
-        timestamptz collected_at
-        timestamptz entered_at
+        uuid entered_by_astronaut_id FK
         string panel_name
         string analyte
         float value
         string unit
-        float reference_low
-        float reference_high
-        string source_notes
     }
 
-    MISSIONS ||--o{ ASTRONAUTS : assigns
-    MISSIONS o|--o{ RULE_SETS : scopes
+    MISSIONS ||--o{ ASTRONAUTS : crews
+    ASTRONAUTS ||--|| ACCOUNTS : authenticates
+    ASTRONAUTS ||--o{ SESSIONS : signs_in
+    MISSIONS ||--o{ COMMAND_HANDOVERS : records
+    ASTRONAUTS ||--o{ COMMAND_HANDOVERS : transfers
+    MISSIONS ||--o{ RULE_SETS : configures
     RULE_SETS ||--o{ RULES : contains
-    ASTRONAUTS ||--o{ VITAL_SAMPLES : has
-    ASTRONAUTS ||--o{ SLEEP_SESSIONS : has
-    SLEEP_SESSIONS ||--o{ SLEEP_STAGES : contains
+    ASTRONAUTS ||--o{ VITAL_SAMPLES : records
+    ASTRONAUTS ||--o{ SLEEP_SESSIONS : records
     ASTRONAUTS ||--o{ CHECK_INS : completes
     CHECK_INS ||--o{ CHECK_IN_ANSWERS : includes
     ASTRONAUTS ||--o{ AGENT_CONVERSATIONS : starts
     AGENT_CONVERSATIONS ||--o{ AGENT_MESSAGES : contains
-    ASTRONAUTS ||--o{ HEALTH_ASSESSMENTS : receives
-    CHECK_INS o|--o{ HEALTH_ASSESSMENTS : informs
-    ASTRONAUTS ||--o{ CONDITION_EVENTS : has
+    ASTRONAUTS ||--o{ HEALTH_ASSESSMENTS : assessed
+    HEALTH_ASSESSMENTS ||--o{ TREATMENT_PLANS : informs
+    ASTRONAUTS ||--o{ TREATMENT_PLANS : receives
+    TREATMENT_PLANS ||--o{ TREATMENT_PLAN_ITEMS : contains
+    ASTRONAUTS ||--o{ CONDITION_EVENTS : experiences
+    CONDITION_EVENTS ||--o{ DECISIONS : informs
+    RULES ||--o{ DECISIONS : constrains
     CONDITION_EVENTS ||--o{ CREW_ALERTS : triggers
     ASTRONAUTS ||--o{ CREW_ALERTS : receives
-    ASTRONAUTS ||--o{ DECISIONS : has
-    CONDITION_EVENTS o|--o{ DECISIONS : informs
-    RULES o|--o{ DECISIONS : informs
-    DECISIONS o|--o{ DECISIONS : supersedes
-    MISSIONS ||--o{ MEDICATION_INVENTORY : stores
-    MEDICATIONS ||--o{ MEDICATION_INVENTORY : stocked_as
-    ASTRONAUTS ||--o{ MEDICATION_EVENTS : has
-    MISSIONS ||--o{ MEDICATION_EVENTS : records
-    MEDICATIONS ||--o{ MEDICATION_EVENTS : involves
-    CONDITION_EVENTS o|--o{ MEDICATION_EVENTS : relates_to
-    DECISIONS o|--o{ MEDICATION_EVENTS : prompts
-    ASTRONAUTS ||--o{ TREATMENT_PLANS : has
-    HEALTH_ASSESSMENTS o|--o{ TREATMENT_PLANS : informs
-    TREATMENT_PLANS ||--o{ TREATMENT_PLAN_ITEMS : contains
-    MEDICATIONS o|--o{ TREATMENT_PLAN_ITEMS : specifies
-    MISSIONS ||--o{ MISSION_REPORTS : generates
-    ASTRONAUTS o|--o{ MISSION_REPORTS : concerns
+    MISSIONS ||--o{ MEDICATION_INVENTORY : stocks
+    MEDICATIONS ||--o{ MEDICATION_INVENTORY : tracked
+    ASTRONAUTS ||--o{ MEDICATION_EVENTS : receives
+    MEDICATIONS ||--o{ MEDICATION_EVENTS : records
+    DECISIONS ||--o{ MEDICATION_EVENTS : authorizes
+    MEDICATION_EVENTS o|--o{ CREW_ALERTS : informs
+    MISSIONS ||--o{ MISSION_REPORTS : queues
     MISSION_REPORTS ||--o{ MISSION_COMMAND_REPLIES : receives
     ASTRONAUTS ||--o{ LAB_RESULTS : has

@@ -392,8 +392,8 @@ function PlanSection({ a }: { a: Astronaut }) {
   const wait = fmtDelay(Math.round(loc.owltSec * 2 + EARTH_REVIEW_SEC));
   const APPROVAL: Record<string, { label: string; cls: string }> = {
     'not-required': { label: 'Urgent: going ahead now, no approval needed', cls: 'text-critical' },
-    'pending-mission-command': s.location === 'mars' ? { label: `Earth review is at least ${wait} away, so the onboard system acts as the doctor`, cls: 'text-watch' } : { label: `Waiting for mission command, reply in about ${wait}`, cls: 'text-watch' },
-    approved: { label: 'Approved by mission command', cls: 'text-nominal' },
+    'pending-team-leader': { label: 'Waiting for the astronaut’s decider on board', cls: 'text-watch' },
+    approved: { label: 'Approved by the astronaut’s decider', cls: 'text-nominal' },
     'changed-by-mission-command': { label: 'Changed by mission command', cls: 'text-nasa-bright' },
   };
   return (
@@ -444,7 +444,7 @@ function PlanSection({ a }: { a: Astronaut }) {
               ))}
             </ul>
           )}
-          <p className="mt-3 text-sm text-text-3">Urgent items go ahead with no approval. The rest are checked with mission command first, which takes about {wait} from {loc.label}.</p>
+          <p className="mt-3 text-sm text-text-3">Urgent non-medication items go ahead with no approval. Other items wait for the astronaut’s decider on board.</p>
         </div>
       </div>
     </Panel>

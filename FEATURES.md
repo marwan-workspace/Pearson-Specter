@@ -10,9 +10,10 @@ Each astronaut wears a watch that reads vitals, checks them with a hybrid of mac
 
 | Part | Built? | Notes |
 |---|---|---|
-| Dashboard | Yes | |
+| Dashboard | Yes | A JavaScript backend now stores mission data and enforces crew access. |
 | Watch ML model, LLM and rule set | Yes | Code in `watch/`. ML detects, the LLM (Gemini) decides |
 | Manager agent | Yes | Code in `overview/`. Gemini runs the daily check-in, root cause, treatment plan, chat and weekly report. Called as `python -m overview <command>` with JSON in and JSON out, shaped like the frontend's types |
+| Backend and access | Yes | JavaScript API in `backend/`; PostgreSQL storage and row-level security in `database/schema.sql`; Python watch and agent modules run as workers. Report queues follow Earth link, configured round-trip time and a simulated review interval. |
 | Physical watch | No | Vitals are simulated or replayed from datasets (feature 10) |
 | Medication delivery hardware | No | "Administers meds" is a logged event shown on the dashboard |
 
@@ -34,7 +35,7 @@ The watch reads vitals, a hybrid of machine learning and an LLM checks them, and
 - **ML detects:** a model trained on the wearable stress and exercise dataset labels each minute as rest, stress or exercise. Fixed checks flag abnormal readings (heart rate, blood pressure, radiation).
 - **LLM decides:** Gemini gets the vitals, the activity label, the flags and the rule set, and picks the condition. This includes tier 1 automatic injections.
 - **Rule set:** `watch/rules.json` holds each condition's flag, tier, first response and medication. The response for a chosen condition always comes from the rules, not from the LLM's text.
-- **Safeguards:** the LLM cannot choose a condition whose flag is not raised. If the LLM is unreachable or its answer is rejected, the rules are applied directly, most severe first. The LLM cannot answer "none" while a tier 1 flag or a sensor fault is raised. A second automatic injection for the same condition is blocked for 30 minutes (unverified value) and becomes a crewmate alert. A missing or invalid sensor value raises a sensor fault instead of reading as healthy. The cancel window and stock tracking (feature 12) are not built yet.
+- **Safeguards:** the LLM cannot choose a condition whose flag is not raised. If the LLM is unreachable or its answer is rejected, the rules are applied directly, most severe first. The LLM cannot answer "none" while a tier 1 flag or a sensor fault is raised. A second automatic injection for the same condition is blocked for 30 minutes (unverified value) and becomes a crewmate alert. A missing or invalid sensor value raises a sensor fault instead of reading as healthy. A dose cannot be confirmed or recorded as administered until a medically reviewed quantity and matching stock are configured. The 15-second cancellation window is enforced.
 
 - **Vitals read:** heart rate, blood pressure, radiation dose, sleep, blood oxygen, body temperature.
 - **Conditions detected:** tachycardia, bradycardia, radiation sickness, panic attack, low blood pressure, high blood pressure. Low blood oxygen (below 90%) is also detected and alerts a crewmate. Fever is not checked yet.
@@ -78,7 +79,7 @@ Tells a loose or removed watch apart from a real flatline.
 
 #### 2. Mental health checks — Must
 - The agent asks set questions and produces a score.
-- Results go to mission command.
+- The astronaut's decider can review the result; the acting leader includes crew results in the weekly report to mission command.
 - If an issue is spotted, the agent recommends daily sessions that work as therapy.
 
 #### 3. Short-term vitals evaluation — Must
@@ -92,21 +93,21 @@ Shows and scores the last 24 hours of watch data.
 - A plan for the underlying problem found by feature 8.
 - Can contain medication, sleep schedule changes, therapy sessions, exercise and diet.
 - **Urgent:** proceeds with no approval.
-- **Not urgent:** checked with mission command first.
+- **Not urgent:** approved by the astronaut's decider on board. Mission command is informed in the weekly report and may advise.
 
 #### 14. Radiation exposure tracker — Should
 Running total dose per astronaut with a take-shelter warning.
 
 #### 16. Crew overview screen — Should
-Every astronaut's status at a glance for the commander or medical officer.
+Every astronaut's status at a glance for the acting team leader. Other crew members see only their own health record.
 
 #### 15. Blood test entry — Later
 Periodic lab results (blood count, metabolic panel) entered on the dashboard. These are lab draws, not something the watch reads.
 
 #### 20. Mars delay bar — Should
-- A slider at the top of the dashboard: ISS → Moon → Mars.
+- The acting leader selects ISS, Moon, or Mars from the dashboard; the mission row stores the matching round-trip delay and Earth-link state.
 - The further out, the longer Earth takes to answer. At Mars the system acts as the doctor.
-- Affects everything that waits on Earth: non-urgent treatment plan approval (4), weekly and emergency reports (6), and replies from mission command.
+- Affects report dispatch (6), which queues without Earth contact and uses the configured round-trip and review intervals for a simulated acknowledgment. Treatment plans are decided on board.
 - This is the story that ties the features together in the demo.
 
 #### 21. Gravity drop test — Should
@@ -127,7 +128,7 @@ Periodic lab results (blood count, metabolic panel) entered on the dashboard. Th
 - When the watch and the astronaut disagree (watch says healthy, astronaut feels ill), it analyses the data to find the reason for the feeling. The astronaut's report takes priority.
 
 #### 6. Weekly check-in with mission command — Must
-- Weekly report holds a written summary per astronaut, the raw data, and flagged issues.
+- The acting team leader creates a weekly report holding a written summary per astronaut, raw data, and flagged issues.
 - Mission command can reply (approve plans, change instructions). The dashboard presents the reply to the crew.
 - An emergency triggers an immediate emergency report outside the weekly schedule.
 
@@ -135,13 +136,13 @@ Periodic lab results (blood count, metabolic panel) entered on the dashboard. Th
 When the watch detects a problem, other astronauts are told who is in trouble and what to give. Required for response tier 3.
 
 #### 12. Medication log and stock — Should
-Records every dose, enforces dose limits and the cancel window, and tracks what is left on board.
+Records proposed, confirmed, withheld and administered doses, enforces the cancel window, and tracks inventory consumption when a reviewed dose quantity and stock lot are configured. Inventory starts empty. The sample stock quantities in `web-frontend/src/lib/conditions.ts` are placeholders pending medical review and are not loaded into the database; watch rules do not specify dose quantities, so automatic administration remains withheld until reviewed values are configured. The UI's sample maximum-daily-dose values are also not enforced as clinical limits.
 
 #### 17. Decision log — Later
 Every watch and agent decision is stored with the rule that fired and the reason, and included in the weekly report.
 
 #### 18. Works without Earth contact — Later
-Nothing depends on a live link to Earth. Reports queue up until contact returns.
+On-board watch and agent operations work without Earth contact. Weekly and emergency reports queue while the link is unavailable and dispatch when it returns. Replies use the configured round-trip and review intervals; the current response is a simulated acknowledgment.
 
 ### Demo support
 
@@ -166,6 +167,14 @@ The last two are from PhysioNet under the Open Data Commons Attribution License 
 - https://physionet.org/content/wearable-device-dataset/1.0.1/
 - https://physionet.org/content/bidmc/1.0.0/
 
+## Chain of command and access
+
+- The fit active astronaut with the lowest command rank is the acting team leader. If the leader is unable to serve or hands over, command moves to the next fit active astronaut and stays there until restored by the acting leader.
+- Every crew member can read their own health data. Their decider can read their health data and check-in transcripts; free-agent chat messages stay private, while a conversation summary can be shared with the decider.
+- The acting leader gets the crew overview, pending decisions, and weekly report tools. Other crew members see only their own record.
+- A crewmate who receives an emergency alert sees its text and instructions, not the health measurements behind it.
+- The PostgreSQL backend uses database row-level security for web requests. The watch service uses a separate database role for mission-wide monitoring.
+
 ## Open questions
 
 - **LLM without Earth contact:** Gemini is a cloud API, so it conflicts with feature 18. The rules-only fallback covers the gap for now.
@@ -177,5 +186,4 @@ The last two are from PhysioNet under the Open Data Commons Attribution License 
 - **Mental health questions:** which set of questions and scoring to use is not decided.
 - **"Urgent":** what makes a treatment plan urgent is not defined.
 - **Medication doses:** none specified; needs medical review.
-- **Tech stack:** not decided.
 - **Repo hygiene:** the data is nested as `raw/raw`, contains leftover `Zone.Identifier` files, and is about 500 MB. Decide whether data is committed or ignored.

@@ -176,7 +176,7 @@ function earthReply(s: MissionState, reportId: string, now: number): MissionStat
     ...s,
     reports: s.reports.map((x) => (x.id === reportId ? { ...x, delivery: 'replied', reply: { at: now, text } } : x)),
     plans: Object.fromEntries(
-      Object.entries(s.plans).map(([id, items]) => [id, items.map((p) => (p.approval === 'pending-mission-command' ? { ...p, approval: 'approved' as const, missionCommandNote: 'Approved in the weekly reply.' } : p))]),
+      Object.entries(s.plans).map(([id, items]) => [id, items.map((p) => (p.approval === 'pending-team-leader' ? { ...p, approval: 'approved' as const, missionCommandNote: 'Approved by the acting team leader.' } : p))]),
     ),
     decisions: [{ id: uid(), at: now, actor: 'Mission command', decision: 'Approved pending treatment-plan items', reason: 'Weekly check-in reply' }, ...s.decisions],
   };
@@ -368,7 +368,7 @@ function reducer(s: MissionState, a: Action): MissionState {
         const mh = mentalSeries(s, c.id).slice(-1)[0];
         const avg = nights.reduce((x, n) => x + n.hours, 0) / nights.length;
         const evs = s.events.filter((e) => e.astronautId === c.id && !e.suppressed && s.now - e.detectedAt < 7 * 86_400_000);
-        summary[c.id] = `Sleep ${avg.toFixed(1)} h/night avg. Mental-health score ${mh.score}/100. ${evs.length} watch event(s). ${s.plans[c.id].filter((p) => p.approval === 'pending-mission-command').length} plan item(s) awaiting approval.`;
+        summary[c.id] = `Sleep ${avg.toFixed(1)} h/night avg. Mental-health score ${mh.score}/100. ${evs.length} watch event(s). ${s.plans[c.id].filter((p) => p.approval === 'pending-team-leader').length} plan item(s) awaiting approval.`;
         if (mh.score < 60) flagged.push(`${c.name}: mental-health score ${mh.score}`);
         if (avg < 6.5) flagged.push(`${c.name}: average sleep ${avg.toFixed(1)} h`);
         evs.forEach((e) => flagged.push(`${c.name}: ${CONDITIONS[e.condition].label}`));
@@ -434,7 +434,7 @@ function reducer(s: MissionState, a: Action): MissionState {
     case 'blood':
       return {
         ...s,
-        blood: { ...s.blood, [a.id]: [...s.blood[a.id], { id: uid(), date: new Date().toISOString().slice(0, 10), enteredBy: 'Medical Officer', values: a.values }] },
+        blood: { ...s.blood, [a.id]: [...s.blood[a.id], { id: uid(), date: new Date().toISOString().slice(0, 10), enteredBy: 'Astronaut', values: a.values }] },
       };
     case 'sensor-fault':
       return {

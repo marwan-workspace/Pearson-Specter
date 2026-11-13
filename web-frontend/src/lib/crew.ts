@@ -51,7 +51,7 @@ export const CREW: Astronaut[] = [
     medications: [
       { name: 'Vitamin D3', dose: '1000 IU', route: 'oral', schedule: 'Daily 07:00', reason: 'Bone-loss countermeasure', today: [{ at: at(-6), taken: true }] },
       { name: 'Melatonin', dose: '5 mg', route: 'oral', schedule: 'Nightly 21:30', reason: 'Treatment plan: sleep schedule', today: [{ at: at(8), taken: false }] },
-      { name: 'Sertraline', dose: '25 mg', route: 'oral', schedule: 'Daily 08:00 (pending approval)', reason: 'Proposed by root-cause analysis, awaiting mission command', today: [] },
+      { name: 'Sertraline', dose: '25 mg', route: 'oral', schedule: 'Daily 08:00 (pending approval)', reason: 'Proposed by root-cause analysis, awaiting the astronaut’s decider', today: [] },
     ],
   },
   {
@@ -75,7 +75,7 @@ export const CREW: Astronaut[] = [
     id: 'maya',
     sex: 'F', daysInSpace: 142, family: [{ name: 'Chidi', relation: 'brother', bpm: 70 }],
     name: 'Maya Okafor',
-    role: 'Medical Officer',
+    role: 'Crew',
     age: 35,
     suitColor: '#5ad1ff',
     visorTint: '#d4462a',
@@ -302,20 +302,20 @@ export function treatmentPlan(id: string): PlanItem[] {
         p(1, { kind: 'sleep', text: 'Fixed sleep window 21:00–05:30 for 7 nights; no screens after 20:30', urgent: false, approval: 'approved', missionCommandNote: 'Approved. Reassess on day 7.' }),
         p(2, { kind: 'medication', text: 'Melatonin 5 mg nightly at 21:30', urgent: false, approval: 'approved' }),
         p(3, { kind: 'therapy', text: 'Daily 20-min guided CBT session with the agent', urgent: false, approval: 'approved' }),
-        p(4, { kind: 'medication', text: 'Start sertraline 25 mg daily', urgent: false, approval: 'pending-mission-command' }),
-        p(5, { kind: 'exercise', text: 'Move treadmill session to the morning (no exercise after 18:00)', urgent: false, approval: 'pending-mission-command' }),
+        p(4, { kind: 'medication', text: 'Start sertraline 25 mg daily', urgent: false, approval: 'pending-team-leader' }),
+        p(5, { kind: 'exercise', text: 'Move treadmill session to the morning (no exercise after 18:00)', urgent: false, approval: 'pending-team-leader' }),
       ];
     case 'hiro':
       return [
         p(1, { kind: 'medication', text: 'Take the missed lisinopril 10 mg now; recheck BP in 2 h', urgent: true, approval: 'not-required' }),
-        p(2, { kind: 'diet', text: 'Fluids 2.5 L today; reduce sodium (no rehydratable soups for 3 days)', urgent: false, approval: 'pending-mission-command' }),
+        p(2, { kind: 'diet', text: 'Fluids 2.5 L today; reduce sodium (no rehydratable soups for 3 days)', urgent: false, approval: 'pending-team-leader' }),
         p(3, { kind: 'sleep', text: 'Protect 8 h sleep opportunity for 3 nights', urgent: false, approval: 'approved' }),
       ];
     case 'maya':
       return [
         p(1, { kind: 'medication', text: 'Ondansetron available on the watch (tier 1) if vomiting starts', urgent: true, approval: 'not-required' }),
         p(2, { kind: 'exercise', text: 'No EVA for 7 days; light exercise only', urgent: false, approval: 'approved', missionCommandNote: 'Approved. EVA-5 reassigned.' }),
-        p(3, { kind: 'diet', text: 'Antioxidant-rich menu and +500 mL fluids for 3 days', urgent: false, approval: 'pending-mission-command' }),
+        p(3, { kind: 'diet', text: 'Antioxidant-rich menu and +500 mL fluids for 3 days', urgent: false, approval: 'pending-team-leader' }),
         p(4, { kind: 'sleep', text: 'Sleep in the shielded crew quarters during the solar event', urgent: true, approval: 'not-required' }),
       ];
     default:
@@ -347,7 +347,7 @@ export function bloodTests(id: string): BloodTest[] {
       if (id === 'hiro' && m.key === 'creatinine') v = 1.1 + i * 0.05;
       values[m.key] = Number(v.toFixed(m.range[1] > 50 ? 0 : 1));
     }
-    return { id: `bt-${id}-${d}`, date: iso(T0 - d * DAY), enteredBy: 'Maya Okafor (Medical Officer)', values };
+    return { id: `bt-${id}-${d}`, date: iso(T0 - d * DAY), enteredBy: 'Crew health system', values };
   });
 }
 
@@ -364,7 +364,7 @@ export const DECISIONS: DecisionLogEntry[] = [
   { id: 'd2', at: at(-16), astronautId: 'maya', actor: 'Manager agent', decision: 'Issued take-shelter warning', reason: 'Dose rate 420 µSv/h exceeded the 300 µSv/h threshold during EVA' },
   { id: 'd3', at: at(-9), astronautId: 'maya', actor: 'Root-cause analysis', decision: 'Flagged radiation exposure as underlying problem', reason: 'EVA dose peak + nausea reported in check-in' },
   { id: 'd4', at: at(-2.9), astronautId: 'kwame', actor: 'Root-cause analysis', decision: 'Identified chronic sleep disruption → anxiety', reason: 'Check-in + 7-night sleep decline + falling mental-health score' },
-  { id: 'd5', at: at(-2.8), astronautId: 'kwame', actor: 'Manager agent', decision: 'Sent sertraline proposal to mission command (non-urgent)', reason: 'Medication changes that are not urgent require approval' },
+  { id: 'd5', at: at(-2.8), astronautId: 'kwame', actor: 'Manager agent', decision: 'Sent sertraline proposal to the team leader (non-urgent)', reason: 'Medication changes require approval by the astronaut’s decider' },
   { id: 'd6', at: at(-2.5), astronautId: 'hiro', actor: 'Manager agent', decision: 'Watch/astronaut disagreement resolved in favour of the astronaut report', reason: 'BP +16 vs baseline (sub-alarm) + missed lisinopril + short sleep' },
   { id: 'd7', at: at(-2.4), astronautId: 'hiro', actor: 'Root-cause analysis', decision: 'Urgent plan item: take missed lisinopril now', reason: 'Urgent items proceed without approval' },
 ];

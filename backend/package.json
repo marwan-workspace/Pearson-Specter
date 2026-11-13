@@ -1,0 +1,12 @@
+{
+  "name": "pearson-specter-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "seed:accounts": "node seed-accounts.js"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

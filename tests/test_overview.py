@@ -33,7 +33,7 @@ class OverviewTest(unittest.TestCase):
     def test_urgent_items_skip_approval_and_the_rest_wait_for_mission_command(self):
         out = agent.assess(DAY, says(ASSESSMENT))
         self.assertEqual([p["approval"] for p in out["plan"][:3]],
-                         ["pending-mission-command", "not-required", "pending-mission-command"])
+                         ["pending-team-leader", "not-required", "pending-team-leader"])
         self.assertEqual(out["rootCause"]["confidence"], 1)
 
     def test_low_mental_score_always_gets_therapy(self):

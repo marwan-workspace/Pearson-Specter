@@ -202,6 +202,17 @@
     color var(--duration-fast) var(--ease-out-ui),
     transform var(--duration-instant) var(--ease-snappy);
 }
+.input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--space-1);
+  color: var(--white);
+}
+.input::placeholder { color: var(--text-3); }
+.input:focus-visible { border-color: var(--nasa-blue-bright); }
 .btn:active:not(:disabled) {
   transform: scale(0.975);
 }

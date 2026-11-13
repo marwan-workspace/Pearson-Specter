@@ -55,7 +55,7 @@ def assess(day, ask=llm.ask):
         VOICE + "Find the single most likely underlying problem behind this astronaut's last 24 hours, "
         "from the check-in, sleep, mental health and vitals together. List the findings that support it, "
         "with weights that add up to 1. Then write a treatment plan of 1 to 5 items. Mark an item urgent "
-        "only if waiting for mission command on Earth would risk harm. If nothing is wrong, say so and "
+        "only if waiting for the on-board decider would risk harm. If nothing is wrong, say so and "
         "keep the plan to monitoring advice.\n"
         f"Data: {json.dumps(day)}",
         _obj(problem=STR, confidence=NUM, urgency={"type": "string", "enum": URGENCY},
@@ -79,10 +79,10 @@ def assess(day, ask=llm.ask):
         "urgency": urgency,
         "plan": [{"id": f"{day['astronautId']}-{day['date']}-{i}", "kind": p["kind"], "text": p["text"],
                   "urgent": p["urgent"],
-                  # urgent proceeds with no approval; the rest waits for mission command. Medication from
+                  # urgent proceeds with no approval; the rest waits for the on-board decider. Medication from
                   # the LLM always waits: the drug is free text and nothing checks it against a list
                   "approval": "not-required" if p["urgent"] and p["kind"] != "medication"
-                  else "pending-mission-command"}
+                  else "pending-team-leader"}
                  for i, p in enumerate(plan)],
     }
 
