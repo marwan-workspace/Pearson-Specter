@@ -1,21 +1,34 @@
-import type { ConditionId, ConditionSpec, StockItem, VitalSample } from './types';
+import type { ConditionId, ConditionSpec, StockItem, Tier, VitalSample } from './types';
+// One rule set for the dashboard and the Python watch; rest_hr_high is learned from data.
+import rules from '../../../watch/rules.json';
+import baselines from '../../../watch/baselines.json';
 
 /**
- * Feature 7 — medication per condition, exactly as listed in FEATURES.md.
+ * Feature 7 — medication per condition. Tier, first response and medication come from
+ * watch/rules.json; only the display label, stock drug and injectability live here.
  * WARNING (from FEATURES.md): not checked against NASA's medical kit or clinical
  * guidelines; contains no doses. Needs medical review before being presented as fact.
  */
+const RULE_BY_ID = Object.fromEntries(rules.conditions.map((c) => [c.name.replace(/_/g, '-'), c]));
+function spec(id: ConditionId, label: string, drug: string, watchCanInject: boolean): ConditionSpec {
+  const r = RULE_BY_ID[id];
+  if (!r) throw new Error(`watch/rules.json has no condition for '${id}'`);
+  const medication = r.medication.charAt(0).toUpperCase() + r.medication.slice(1);
+  return { id, label, drug, watchCanInject, tier: r.tier as Tier, firstResponse: r.first_response, medication };
+}
 export const CONDITIONS: Record<ConditionId, ConditionSpec> = {
-  bradycardia: { id: 'bradycardia', label: 'Bradycardia (symptomatic)', firstResponse: 'Alert crew', medication: 'Atropine; epinephrine if atropine fails', watchCanInject: true, tier: 1, drug: 'Atropine' },
-  shock: { id: 'shock', label: 'Shock (severe low blood pressure)', firstResponse: 'Lie down, alert crew', medication: 'Epinephrine', watchCanInject: true, tier: 1, drug: 'Epinephrine' },
-  'radiation-sickness': { id: 'radiation-sickness', label: 'Radiation sickness', firstResponse: 'Move to shielded area', medication: 'Ondansetron (nausea); filgrastim (bone marrow)', watchCanInject: true, tier: 1, drug: 'Ondansetron' },
-  'panic-attack': { id: 'panic-attack', label: 'Panic attack', firstResponse: 'Guided breathing on the watch', medication: 'Lorazepam or midazolam', watchCanInject: true, tier: 2, drug: 'Midazolam' },
-  tachycardia: { id: 'tachycardia', label: 'Tachycardia (abnormal rhythm)', firstResponse: 'Breathing / vagal manoeuvres', medication: 'Adenosine; metoprolol', watchCanInject: false, tier: 3, drug: 'Metoprolol' },
-  'low-bp': { id: 'low-bp', label: 'Low blood pressure (not shock)', firstResponse: 'Lie down, fluids', medication: 'Midodrine (oral)', watchCanInject: false, tier: 3, drug: 'Midodrine' },
-  'high-bp': { id: 'high-bp', label: 'High blood pressure (emergency)', firstResponse: 'Rest, recheck', medication: 'Labetalol or nicardipine (IV); captopril (oral)', watchCanInject: false, tier: 3, drug: 'Captopril' },
-  'low-oxygen': { id: 'low-oxygen', label: 'Low blood oxygen', firstResponse: 'Supplemental O₂, alert crew', medication: 'Oxygen', watchCanInject: false, tier: 3, drug: 'Oxygen' },
-  fever: { id: 'fever', label: 'Fever', firstResponse: 'Rest, fluids, recheck', medication: 'Acetaminophen (oral)', watchCanInject: false, tier: 3, drug: 'Acetaminophen' },
+  bradycardia: spec('bradycardia', 'Bradycardia (symptomatic)', 'Atropine', true),
+  shock: spec('shock', 'Shock (severe low blood pressure)', 'Epinephrine', true),
+  'radiation-sickness': spec('radiation-sickness', 'Radiation sickness', 'Ondansetron', true),
+  'panic-attack': spec('panic-attack', 'Panic attack', 'Midazolam', true),
+  tachycardia: spec('tachycardia', 'Tachycardia (abnormal rhythm)', 'Metoprolol', false),
+  'low-bp': spec('low-bp', 'Low blood pressure (not shock)', 'Midodrine', false),
+  'high-bp': spec('high-bp', 'High blood pressure (emergency)', 'Captopril', false),
+  'low-oxygen': spec('low-oxygen', 'Low blood oxygen', 'Oxygen', false),
+  fever: spec('fever', 'Fever', 'Acetaminophen', false),
 };
+const T = rules.thresholds;
+const HR_HIGH = baselines.rest_hr_high;
 
 export const TIER_LABEL: Record<1 | 2 | 3, string> = {
   1: 'Tier 1 · Automatic injection',
@@ -51,15 +64,15 @@ export const INITIAL_STOCK: StockItem[] = [
  */
 export const RULES = {
   RAD1: 'RAD-1 · dose rate > 5000 µSv/h, or > 1500 µSv/h with cumulative dose > 400 mSv',
-  SHK1: 'SHK-1 · systolic < 75 mmHg with HR > 110 (3 samples)',
-  BRD1: 'BRD-1 · HR < 42 bpm sustained (3 samples)',
-  OXY1: 'OXY-1 · SpO₂ < 90% (3 samples)',
-  HBP1: 'HBP-1 · systolic > 175 mmHg (3 samples)',
-  LBP1: 'LBP-1 · systolic < 90 mmHg (3 samples)',
-  FEV1: 'FEV-1 · temperature > 38.2 °C (3 samples)',
-  ACT1: 'ACT-1 · HR > 130 during exercise → suppress (activity context)',
-  PAN1: 'PAN-1 · HR 130–150 at rest and systolic +15 vs own recent BP',
-  TAC1: 'TAC-1 · HR > 130 at rest, no exercise',
+  SHK1: `SHK-1 · systolic < ${T.bp_sys_shock} mmHg (3 samples)`,
+  BRD1: `BRD-1 · HR < ${T.hr_low} bpm sustained (3 samples)`,
+  OXY1: `OXY-1 · SpO₂ < ${T.spo2_low}% (3 samples)`,
+  HBP1: `HBP-1 · systolic > ${T.bp_sys_high} mmHg (3 samples)`,
+  LBP1: `LBP-1 · systolic < ${T.bp_sys_low} mmHg (3 samples)`,
+  FEV1: `FEV-1 · temperature > ${T.temp_high} °C (3 samples)`,
+  ACT1: `ACT-1 · HR > ${HR_HIGH} during exercise → suppress (activity context)`,
+  PAN1: `PAN-1 · HR ${HR_HIGH}–150 at rest and systolic +15 vs own recent BP`,
+  TAC1: `TAC-1 · HR > ${HR_HIGH} at rest, no exercise`,
 } as const;
 export function detect(
   recent: VitalSample[],
@@ -81,13 +94,13 @@ export function detect(
 
   if (rad > 5000 || (rad > 1500 && cumulativeDoseMSv > 400))
     return { condition: 'radiation-sickness', rule: RULES.RAD1, confidence: 0.81, evidence: `Dose rate ${Math.round(rad)} µSv/h (cumulative ${cumulativeDoseMSv.toFixed(0)} mSv)` };
-  if (sys < 75 && hr > 110) return { condition: 'shock', rule: RULES.SHK1, confidence: 0.88, evidence: `BP ${Math.round(sys)} systolic with HR ${Math.round(hr)}` };
-  if (hr < 42) return { condition: 'bradycardia', rule: RULES.BRD1, confidence: 0.9, evidence: `HR ${Math.round(hr)} bpm (baseline ${baseline.heartRate})` };
-  if (spo2 < 90) return { condition: 'low-oxygen', rule: RULES.OXY1, confidence: 0.86, evidence: `SpO₂ ${Math.round(spo2)}%` };
-  if (sys > 175) return { condition: 'high-bp', rule: RULES.HBP1, confidence: 0.84, evidence: `BP ${Math.round(sys)} systolic (baseline ${baseline.systolic})` };
-  if (sys < 90) return { condition: 'low-bp', rule: RULES.LBP1, confidence: 0.77, evidence: `BP ${Math.round(sys)} systolic` };
-  if (temp > 38.2) return { condition: 'fever', rule: RULES.FEV1, confidence: 0.8, evidence: `Temp ${temp.toFixed(1)} °C` };
-  if (hr > 130) {
+  if (sys < T.bp_sys_shock) return { condition: 'shock', rule: RULES.SHK1, confidence: 0.88, evidence: `BP ${Math.round(sys)} systolic with HR ${Math.round(hr)}` };
+  if (hr < T.hr_low) return { condition: 'bradycardia', rule: RULES.BRD1, confidence: 0.9, evidence: `HR ${Math.round(hr)} bpm (baseline ${baseline.heartRate})` };
+  if (spo2 < T.spo2_low) return { condition: 'low-oxygen', rule: RULES.OXY1, confidence: 0.86, evidence: `SpO₂ ${Math.round(spo2)}%` };
+  if (sys > T.bp_sys_high) return { condition: 'high-bp', rule: RULES.HBP1, confidence: 0.84, evidence: `BP ${Math.round(sys)} systolic (baseline ${baseline.systolic})` };
+  if (sys < T.bp_sys_low) return { condition: 'low-bp', rule: RULES.LBP1, confidence: 0.77, evidence: `BP ${Math.round(sys)} systolic` };
+  if (temp > T.temp_high) return { condition: 'fever', rule: RULES.FEV1, confidence: 0.8, evidence: `Temp ${temp.toFixed(1)} °C` };
+  if (hr > HR_HIGH) {
     if (act > 0.6) return { condition: 'tachycardia', rule: RULES.ACT1, confidence: 0.3, evidence: `HR ${Math.round(hr)} during exercise`, suppressed: true };
     // Panic: fast HR together with a sharp BP rise vs. the astronaut's own recent BP; tachycardia otherwise.
     if (hr < 150 && sys - refSys > 15) return { condition: 'panic-attack', rule: RULES.PAN1, confidence: 0.74, evidence: `HR ${Math.round(hr)} at rest, BP ${Math.round(sys)} (+${Math.round(sys - refSys)} in minutes), no exercise` };

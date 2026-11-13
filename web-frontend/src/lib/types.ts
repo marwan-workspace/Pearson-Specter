@@ -15,6 +15,8 @@ export interface VitalSample {
   radiationRate: number;
   /** 0 rest … 1 hard exercise — activity context for false-alarm handling (feature 7). */
   activity: number;
+  /** Feature 19 — written while the watch is off the wrist; the zeros are not real vitals. */
+  sensorFault?: true;
 }
 
 /** Feature 7 — conditions the watch model detects. */

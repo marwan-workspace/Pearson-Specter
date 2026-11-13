@@ -79,8 +79,10 @@ def assess(day, ask=llm.ask):
         "urgency": urgency,
         "plan": [{"id": f"{day['astronautId']}-{day['date']}-{i}", "kind": p["kind"], "text": p["text"],
                   "urgent": p["urgent"],
-                  # urgent proceeds with no approval; the rest waits for mission command
-                  "approval": "not-required" if p["urgent"] else "pending-mission-command"}
+                  # urgent proceeds with no approval; the rest waits for mission command. Medication from
+                  # the LLM always waits: the drug is free text and nothing checks it against a list
+                  "approval": "not-required" if p["urgent"] and p["kind"] != "medication"
+                  else "pending-mission-command"}
                  for i, p in enumerate(plan)],
     }
 

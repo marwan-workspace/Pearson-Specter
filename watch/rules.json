@@ -1,6 +1,6 @@
 {
-  "_note": "Medication choices are unverified and carry no doses. Medical review required. Conditions are listed most severe first; that order is used when the LLM is unavailable.",
-  "thresholds": { "hr_low": 40, "spo2_low": 90, "bp_sys_shock": 70, "bp_sys_low": 90, "bp_sys_high": 180 },
+  "_note": "Medication choices are unverified and carry no doses. Medical review required. Conditions are listed most severe first; that order is used when the LLM is unavailable. The dashboard (web-frontend/src/lib/conditions.ts) reads this file too; names map to its ids with _ replaced by -.",
+  "thresholds": { "hr_low": 40, "spo2_low": 90, "bp_sys_shock": 70, "bp_sys_low": 90, "bp_sys_high": 180, "temp_high": 38.2 },
   "lockout_minutes": 30,
   "tiers": { "1": "auto_inject", "2": "ask_confirm", "3": "alert_crewmate" },
   "conditions": [
@@ -16,10 +16,12 @@
       "first_response": "Guided breathing on the watch", "medication": "lorazepam or midazolam" },
     { "name": "tachycardia", "flag": "hr_high", "states": ["rest"], "tier": 3,
       "first_response": "Breathing / vagal manoeuvres", "medication": "adenosine; metoprolol" },
-    { "name": "low_blood_pressure", "flag": "bp_low", "tier": 3,
+    { "name": "low_bp", "flag": "bp_low", "tier": 3,
       "first_response": "Lie down, fluids", "medication": "midodrine (oral)" },
-    { "name": "high_blood_pressure", "flag": "bp_high", "tier": 3,
+    { "name": "high_bp", "flag": "bp_high", "tier": 3,
       "first_response": "Rest, recheck", "medication": "labetalol or nicardipine (IV); captopril (oral)" },
+    { "name": "fever", "flag": "temp_high", "tier": 3,
+      "first_response": "Rest, fluids, recheck", "medication": "acetaminophen (oral)" },
     { "name": "sensor_fault", "flag": "sensor_fault", "tier": 3,
       "first_response": "Check the watch is worn and working", "medication": "" }
   ]

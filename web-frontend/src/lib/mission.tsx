@@ -215,7 +215,7 @@ function reducer(s: MissionState, a: Action): MissionState {
         const em = next.emergencies[c.id];
         const k = em ? Math.min(1, (now - em.startedAt) / 5000) : 0;
         let sample = applyEmergency(sampleAt(c, now, liveRng), em?.condition ?? null, k);
-        if (next.sensorFault[c.id]) sample = { ...sample, heartRate: 0, spo2: 0 }; // feature 19: watch off the wrist
+        if (next.sensorFault[c.id]) sample = { ...sample, heartRate: 0, spo2: 0, sensorFault: true }; // feature 19: watch off the wrist
         const arr = next.vitals[c.id];
         const hist = arr.length > 288 + LIVE_KEEP ? [...arr.slice(0, 288), ...arr.slice(-LIVE_KEEP + 1)] : arr;
         next.vitals[c.id] = [...hist, sample];
@@ -226,7 +226,8 @@ function reducer(s: MissionState, a: Action): MissionState {
         if (openEvents(next, c.id).length) continue;
 
         const dose = PRIOR_DOSE_MSV[c.id] + doseFromSeries(next.vitals[c.id].slice(0, 288));
-        const d = detect(next.vitals[c.id].slice(-30), c.baseline, dose);
+        // fault samples are kept for the charts but never judged, or re-attaching reads as bradycardia
+        const d = detect(next.vitals[c.id].slice(-30).filter((v) => !v.sensorFault), c.baseline, dose);
         if (!d) continue;
         const recent = next.events.find((e) => e.astronautId === c.id && e.condition === d.condition && now - e.detectedAt < (d.suppressed ? 600_000 : 120_000));
         if (recent) continue;

@@ -23,7 +23,8 @@ def says(reply):
 ASSESSMENT = {"problem": "Poor sleep", "confidence": 1.7, "urgency": "routine",
               "factors": [{"source": "Sleep", "finding": "4.6 h", "weight": 1}],
               "plan": [{"kind": "sleep", "text": "Fixed sleep window", "urgent": False},
-                       {"kind": "medication", "text": "Review medication", "urgent": True}]}
+                       {"kind": "exercise", "text": "Rest today", "urgent": True},
+                       {"kind": "medication", "text": "Start lorazepam nightly", "urgent": True}]}
 CHECKIN_REPLY = {"reply": "Thanks.", "sleepHours": 6, "sleepRating": 3, "symptoms": "headache",
                  "yesterdaySleepHours": -1, "yesterdaySymptoms": "", "mentalAnswers": [4, 3, 2, 3, 4]}
 
@@ -31,7 +32,8 @@ CHECKIN_REPLY = {"reply": "Thanks.", "sleepHours": 6, "sleepRating": 3, "symptom
 class OverviewTest(unittest.TestCase):
     def test_urgent_items_skip_approval_and_the_rest_wait_for_mission_command(self):
         out = agent.assess(DAY, says(ASSESSMENT))
-        self.assertEqual([p["approval"] for p in out["plan"][:2]], ["pending-mission-command", "not-required"])
+        self.assertEqual([p["approval"] for p in out["plan"][:3]],
+                         ["pending-mission-command", "not-required", "pending-mission-command"])
         self.assertEqual(out["rootCause"]["confidence"], 1)
 
     def test_low_mental_score_always_gets_therapy(self):
