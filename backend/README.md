@@ -12,6 +12,8 @@ npm run seed:accounts
 npm start
 ```
 
+`npm test` runs `smoke.test.js` against an empty throwaway database named by `DATABASE_URL_TEST` (it applies the schema itself); without that variable the tests are skipped.
+
 Python workers use the repository virtual environment by default. Set `PYTHON_BIN` if the Python executable is elsewhere. Set `WATCH_ENABLED=false` to disable the watch loop or `WATCH_TICK_MS` to change its interval.
 
 ## API surface

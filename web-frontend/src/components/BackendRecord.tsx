@@ -1,13 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { backendRequest, useSession } from '@/lib/session';
+import { backendRequest, dateText, useSession } from '@/lib/session';
 
 type Row=Record<string,any>;
 type Message={from:'astronaut'|'agent';text:string;at:number};
 const streams=['vitals','sleep','mental','checkins','assessment','plan','medications','labs','events','decisions'] as const;
 const timeKey:Record<string,string>={vitals:'observed_at',sleep:'started_at',mental:'completed_at',checkins:'started_at',assessment:'assessed_at',plan:'created_at',medications:'proposed_at',labs:'collected_at',events:'started_at',decisions:'decided_at'};
-const dateText=(v:any)=>v?new Date(v).toLocaleString():'—';
 const friendly=(s:string)=>s.replaceAll('_',' ').replace(/\b\w/g,x=>x.toUpperCase());
 const val=(v:any)=>v==null?'—':typeof v==='object'?JSON.stringify(v):String(v);
 
@@ -19,30 +18,35 @@ function Rows({items}:{items:Row[]}) {
 
 export function BackendRecord({astronautKey}:{astronautKey:string}) {
   const {me}=useSession();
-  const [records,setRecords]=useState<Record<string,Row[]>>({}); const [cursor,setCursor]=useState<Record<string,string>>({});
+  const [records,setRecords]=useState<Record<string,Row[]>>({}); const cursor=useRef<Record<string,string>>({});
   const [alerts,setAlerts]=useState<Row[]>([]); const [stock,setStock]=useState<Row[]>([]); const [decisions,setDecisions]=useState<Row[]>([]);
   const [command,setCommand]=useState<Row[]>([]);
-  const [checkin,setCheckin]=useState<Message[]>([]); const [chat,setChat]=useState<Message[]>([]); const [chatId,setChatId]=useState<string|null>(null); const [entry,setEntry]=useState(''); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState(''); const polling=useRef(false);
+  const [checkin,setCheckin]=useState<Message[]>([]); const [chat,setChat]=useState<Message[]>([]); const [chatId,setChatId]=useState<string|null>(null); const [entry,setEntry]=useState({chat:'',checkin:''}); const [busy,setBusy]=useState(false); const [notice,setNotice]=useState(''); const polling=useRef(false);
   const [panelName,setPanelName]=useState(''); const [analyte,setAnalyte]=useState(''); const [labValue,setLabValue]=useState(''); const [labUnit,setLabUnit]=useState('');
   const isSelf=me?.astronaut.callsign.toLowerCase()===astronautKey.toLowerCase();
   const loadStreams=useCallback(async(initial=false)=>{
     if(polling.current)return; polling.current=true;
     try {
-      const next:Record<string,Row[]>= { ...records }; const nextCursor={...cursor};
+      // records and cursor are read through setRecords(prev) and a ref, so this callback (and the polling effect) is built once per astronaut
+      const fresh:Record<string,Row[]>={}; const nextCursor=initial?{}:{...cursor.current};
       for(const name of streams) {
-        const since=!initial?cursor[name]:undefined;
+        const since=!initial?nextCursor[name]:undefined;
         const query=since?`?since=${encodeURIComponent(since)}`:'';
         const result=await backendRequest<{items:Row[]}>(`/astronauts/${encodeURIComponent(astronautKey)}/${name}${query}`);
-        const items=result.items||[];
-        if(initial) next[name]=items;
-        else if(items.length) { const have=new Set((next[name]||[]).map(x=>x.id)); next[name]=[...items.filter(x=>!have.has(x.id)),...(next[name]||[])]; }
+        const items=fresh[name]=result.items||[];
         const key=timeKey[name]; const latest=items.map(x=>x[key]).filter(Boolean).sort((a,b)=>Date.parse(b)-Date.parse(a))[0];
         if(latest&&(!nextCursor[name]||Date.parse(latest)>Date.parse(nextCursor[name]))) nextCursor[name]=latest;
       }
-      setRecords(next);setCursor(nextCursor);
+      cursor.current=nextCursor;
+      setRecords(prev=>{
+        if(initial) return fresh;
+        const next={...prev};
+        for(const name of streams) if(fresh[name].length) { const have=new Set((prev[name]||[]).map(x=>x.id)); next[name]=[...fresh[name].filter(x=>!have.has(x.id)),...(prev[name]||[])]; }
+        return next;
+      });
     } catch(e) { setNotice(e instanceof Error?e.message:'Could not load the astronaut record.'); }
     finally {polling.current=false;}
-  },[astronautKey,records,cursor]);
+  },[astronautKey]);
 
   const loadRelated=useCallback(async()=>{
     try {
@@ -67,8 +71,8 @@ export function BackendRecord({astronautKey}:{astronautKey:string}) {
 
   async function act(path:string,body:Row={}) {setBusy(true);setNotice('');try{await backendRequest(path,{method:'POST',body:JSON.stringify(body)});setNotice('Saved.');await Promise.all([loadStreams(true),loadRelated()]);}catch(e){setNotice(e instanceof Error?e.message:'Action failed.');}finally{setBusy(false);}}
   async function send(kind:'chat'|'checkin') {
-    const text=entry.trim();if(!text||!me)return;const next=[...(kind==='chat'?chat:checkin),{from:'astronaut' as const,text,at:Date.now()}];
-    (kind==='chat'?setChat:setCheckin)(next);setEntry('');setBusy(true);setNotice('');
+    const text=entry[kind].trim();if(!text||!me)return;const next=[...(kind==='chat'?chat:checkin),{from:'astronaut' as const,text,at:Date.now()}];
+    (kind==='chat'?setChat:setCheckin)(next);setEntry(e=>({...e,[kind]:''}));setBusy(true);setNotice('');
     try {const result=await backendRequest<{message:{text:string;at?:number};completed?:boolean;mental?:Row;conversationId?:string}>(`/${kind}`,{method:'POST',body:JSON.stringify({astronautId:astronautKey,date:new Date().toISOString().slice(0,10),missedYesterday:false,messages:next.map(m=>({from:m.from,text:m.text})),...(kind==='chat'&&chatId?{conversationId:chatId}:{})})});
       if(result.conversationId) setChatId(result.conversationId);
       const reply={from:'agent' as const,text:result.message.text,at:result.message.at||Date.now()};
@@ -82,7 +86,6 @@ export function BackendRecord({astronautKey}:{astronautKey:string}) {
     await act('/labs',{astronautId:astronautKey,panelName:panelName||'General',results:[{analyte,value:Number(labValue),unit:labUnit}]});
     setAnalyte('');setLabValue('');setLabUnit('');
   }
-  const display=records;
   if(!me)return null;
   const title=astronautKey.toUpperCase();
   return <div className="grid gap-6">
@@ -90,26 +93,26 @@ export function BackendRecord({astronautKey}:{astronautKey:string}) {
     {notice&&<p role="status" className="panel p-4 text-sm">{notice}</p>}
     {!isSelf&&!me.isActingLeader&&<p className="panel p-4 text-sm text-text-2">The database controls this record’s visibility for your account.</p>}
     <div className="grid gap-6 xl:grid-cols-2">
-      <Card title="Vitals · 24 hour stream"><Rows items={display.vitals||[]} /></Card>
-      <Card title="Condition events"><Rows items={display.events||[]} /></Card>
-      <Card title="Decision log"><Rows items={display.decisions||[]} /></Card>
-      <Card title="Sleep"><Rows items={display.sleep||[]} /></Card>
-      <Card title="Mental health and check-ins"><Rows items={display.mental||[]} /><div className="mt-4"><Rows items={display.checkins||[]} /></div></Card>
-      <Card title="Root cause assessments"><Rows items={display.assessment||[]} /></Card>
-      <Card title="Treatment plans"><Rows items={display.plan||[]} />{decisions.length>0&&<div className="mt-4 grid gap-2">{decisions.map(d=><div className="rounded-lg border border-line p-3" key={d.id}><p className="text-xs text-text-2">{d.subject_name||d.subject_callsign||d.astronaut_id}</p><p className="text-sm">{d.proposed_action||d.rationale}</p><div className="mt-2 flex gap-2"><a className="btn btn-ghost" href={`/astronaut/${String(d.subject_callsign||'').toLowerCase()}`}>Open record</a><button className="btn btn-primary" onClick={()=>void act(`/decisions/${d.id}`,{action:'approve'})}>Approve</button><button className="btn btn-ghost" onClick={()=>void act(`/decisions/${d.id}`,{action:'reject'})}>Reject</button></div></div>)}</div>}</Card>
+      <Card title="Vitals · 24 hour stream"><Rows items={records.vitals||[]} /></Card>
+      <Card title="Condition events"><Rows items={records.events||[]} /></Card>
+      <Card title="Decision log"><Rows items={records.decisions||[]} /></Card>
+      <Card title="Sleep"><Rows items={records.sleep||[]} /></Card>
+      <Card title="Mental health and check-ins"><Rows items={records.mental||[]} /><div className="mt-4"><Rows items={records.checkins||[]} /></div></Card>
+      <Card title="Root cause assessments"><Rows items={records.assessment||[]} /></Card>
+      <Card title="Treatment plans"><Rows items={records.plan||[]} />{decisions.length>0&&<div className="mt-4 grid gap-2">{decisions.map(d=><div className="rounded-lg border border-line p-3" key={d.id}><p className="text-xs text-text-2">{d.subject_name||d.subject_callsign||d.astronaut_id}</p><p className="text-sm">{d.proposed_action||d.rationale}</p><div className="mt-2 flex gap-2"><a className="btn btn-ghost" href={`/astronaut/${String(d.subject_callsign||'').toLowerCase()}`}>Open record</a><button className="btn btn-primary" onClick={()=>void act(`/decisions/${d.id}`,{action:'approve'})}>Approve</button><button className="btn btn-ghost" onClick={()=>void act(`/decisions/${d.id}`,{action:'reject'})}>Reject</button></div></div>)}</div>}</Card>
       <Card title="Medication log and stock">
         <p className="mb-3 text-sm text-text-2">Inventory is empty until medically reviewed quantities and stock are configured; the backend will not record an unstocked dose as administered.</p>
-        <Rows items={display.medications||[]} />
-        <div className="mt-3 grid gap-2">{(display.medications||[]).map(m=><div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm"><span>{m.status} · {dateText(m.proposed_at)}</span><span className="flex gap-2">{isSelf&&m.status==='proposed'&&<button className="btn btn-ghost" onClick={()=>void act(`/events/${m.id}/cancel`)}>Cancel</button>}{isSelf&&m.status==='awaiting_confirmation'&&<button className="btn btn-primary" onClick={()=>void act(`/events/${m.id}/confirm`)}>Confirm dose</button>}</span></div>)}</div>
+        <Rows items={records.medications||[]} />
+        <div className="mt-3 grid gap-2">{(records.medications||[]).map(m=><div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm"><span>{m.status} · {dateText(m.proposed_at)}</span><span className="flex gap-2">{isSelf&&m.status==='proposed'&&<button className="btn btn-ghost" onClick={()=>void act(`/events/${m.id}/cancel`)}>Cancel</button>}{isSelf&&m.status==='awaiting_confirmation'&&<button className="btn btn-primary" onClick={()=>void act(`/events/${m.id}/confirm`)}>Confirm dose</button>}</span></div>)}</div>
         <div className="mt-4 grid gap-2">{stock.map(x=><p className="flex justify-between rounded-lg border border-line px-3 py-2 text-sm" key={x.name}><span>{x.name} · {x.route}</span><b>{val(x.quantity_on_hand)} {x.stock_unit}</b></p>)}</div>
       </Card>
-      <Card title="Blood test results"><Rows items={display.labs||[]} /><form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submitLab}><label className="grid gap-1 text-sm">Panel<input className="input" value={panelName} onChange={e=>setPanelName(e.target.value)} placeholder="Blood count" /></label><label className="grid gap-1 text-sm">Analyte<input className="input" value={analyte} onChange={e=>setAnalyte(e.target.value)} required /></label><label className="grid gap-1 text-sm">Value<input className="input" type="number" step="any" value={labValue} onChange={e=>setLabValue(e.target.value)} required /></label><label className="grid gap-1 text-sm">Unit<input className="input" value={labUnit} onChange={e=>setLabUnit(e.target.value)} required /></label><button className="btn btn-primary sm:col-span-2" disabled={busy}>Save lab result</button></form></Card>
+      <Card title="Blood test results"><Rows items={records.labs||[]} /><form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submitLab}><label className="grid gap-1 text-sm">Panel<input className="input" value={panelName} onChange={e=>setPanelName(e.target.value)} placeholder="Blood count" /></label><label className="grid gap-1 text-sm">Analyte<input className="input" value={analyte} onChange={e=>setAnalyte(e.target.value)} required /></label><label className="grid gap-1 text-sm">Value<input className="input" type="number" step="any" value={labValue} onChange={e=>setLabValue(e.target.value)} required /></label><label className="grid gap-1 text-sm">Unit<input className="input" value={labUnit} onChange={e=>setLabUnit(e.target.value)} required /></label><button className="btn btn-primary sm:col-span-2" disabled={busy}>Save lab result</button></form></Card>
       <Card title="Crew alerts"><div className="grid gap-3">{alerts.map(alert=><article key={alert.id} className="rounded-xl border border-line p-4"><p className="font-semibold">{alert.alert_text}</p>{alert.action_instructions&&<p className="mt-1 text-sm text-text-2">{alert.action_instructions}</p>}<p className="label mt-2">{dateText(alert.created_at)} · {alert.status}</p><div className="mt-3 flex gap-2">{alert.recipient_id===me.astronaut.id&&alert.status==='pending'&&<button className="btn btn-ghost" onClick={()=>void act(`/alerts/${alert.id}/ack`)}>Acknowledge</button>}{alert.recipient_id===me.astronaut.id&&alert.medication_event_id&&<button className="btn btn-primary" onClick={()=>void act(`/events/${alert.medication_event_id}/given`)}>Mark medication given</button>}</div></article>)}{!alerts.length&&<p className="text-sm text-text-2">No alerts.</p>}</div></Card>
       <Card title="Command chain"><ol className="grid gap-2">{command.map(c=><li key={c.id} className="flex justify-between rounded-lg border border-line px-3 py-2 text-sm"><span>#{c.command_rank} · {c.display_name}</span><b>{c.fit_for_command?'Fit':'Unfit'}</b></li>)}</ol></Card>
     </div>
     {isSelf&&<div className="grid gap-6 lg:grid-cols-2">
-      <Card title="Daily check-in"><Chat messages={checkin} onSend={()=>void send('checkin')} value={entry} setValue={setEntry} busy={busy} /></Card>
-      <Card title="Private manager-agent chat"><Chat messages={chat} onSend={()=>void send('chat')} value={entry} setValue={setEntry} busy={busy} /></Card>
+      <Card title="Daily check-in"><Chat messages={checkin} onSend={()=>void send('checkin')} value={entry.checkin} setValue={v=>setEntry(e=>({...e,checkin:v}))} busy={busy} /></Card>
+      <Card title="Private manager-agent chat"><Chat messages={chat} onSend={()=>void send('chat')} value={entry.chat} setValue={v=>setEntry(e=>({...e,chat:v}))} busy={busy} /></Card>
     </div>}
   </div>;
 }

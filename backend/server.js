@@ -310,7 +310,9 @@ async function route(req, res, url) {
       if(!q.rowCount) throw new HttpError(404,'Account not found.'); return {ok:true};
     }
     if(method==='GET' && pathName==='/reports') {
-      const q=await c.query(`SELECT r.*,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',x.id,'received_at',x.received_at,'sender',x.sender,'message',x.message) ORDER BY x.received_at)
+      // no raw_data: the list polls every 2 s and only shows summaries; GET /reports/:id has the full row
+      const q=await c.query(`SELECT r.id,r.mission_id,r.astronaut_id,r.report_type,r.created_at,r.period_start,r.period_end,r.status,r.summary,
+        r.flagged_issues,r.sent_at,r.arrives_at,r.reply_due_at,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',x.id,'received_at',x.received_at,'sender',x.sender,'message',x.message) ORDER BY x.received_at)
         FROM mission_command_replies x WHERE x.report_id=r.id),'[]'::jsonb) AS replies
         FROM mission_reports r ORDER BY r.created_at DESC LIMIT 200`); return {items:q.rows};
     }
@@ -360,17 +362,26 @@ async function route(req, res, url) {
   });
 }
 
+// Gemini gets one summary row per hour or day, not the watch's one row per minute (1,440 a day per astronaut)
+const vitalSummary=async(c,id,bucket,from,to)=>(await c.query(`SELECT date_trunc($2,observed_at) AS period,count(*)::int AS samples,
+    round(avg(heart_rate_bpm)::numeric,1) AS hr_avg,min(heart_rate_bpm) AS hr_min,max(heart_rate_bpm) AS hr_max,
+    round(avg(systolic_mmhg)::numeric) AS sys_avg,min(systolic_mmhg) AS sys_min,max(systolic_mmhg) AS sys_max,round(avg(diastolic_mmhg)::numeric) AS dia_avg,
+    min(spo2_percent) AS spo2_min,round(avg(spo2_percent)::numeric,1) AS spo2_avg,max(temperature_c) AS temp_max,max(radiation_rate) AS radiation_max,
+    count(*) FILTER (WHERE sensor_status<>'ok')::int AS sensor_problems
+  FROM vital_samples WHERE astronaut_id=$1 AND observed_at>=$3::timestamptz AND observed_at<$4::timestamptz GROUP BY 1 ORDER BY 1`,[id,bucket,from,to])).rows;
+
 async function runAgent(c, command, body) {
   const astr=body.astronautId ? await resolveAstronaut(c,body.astronautId) : '';
   if(command==='weekly') {
     await requireLeader(c);
     const members=(await c.query('SELECT id FROM astronauts WHERE mission_id=$1 AND active ORDER BY command_rank',[c.astronaut.mission_id])).rows;
     const start=body.periodStart || new Date(Date.now()-7*864e5).toISOString().slice(0,10); const end=body.periodEnd || new Date().toISOString().slice(0,10);
-    const astronauts=[];
+    if(![start,end].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||start>end) throw new HttpError(400,'periodStart and periodEnd must be dates (YYYY-MM-DD), start first.');
+    const astronauts=[]; const dayAfterEnd=new Date(Date.parse(end)+864e5).toISOString().slice(0,10);
     for(const m of members) {
       const [checkins,vitals,sleep,events,decisions,medications,plans]=await Promise.all([
         c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 AND check_in_date BETWEEN $2 AND $3',[m.id,start,end]),
-        c.query('SELECT * FROM vital_samples WHERE astronaut_id=$1 AND observed_at >= $2::date AND observed_at < ($3::date + 1)',[m.id,start,end]),
+        vitalSummary(c,m.id,'day',start,dayAfterEnd),
         c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
         c.query('SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
         c.query('SELECT * FROM decisions WHERE astronaut_id=$1 AND decided_at >= $2::date AND decided_at < ($3::date + 1)',[m.id,start,end]),
@@ -379,7 +390,7 @@ async function runAgent(c, command, body) {
           FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
           WHERE p.astronaut_id=$1 AND p.created_at >= $2::date AND p.created_at < ($3::date + 1) GROUP BY p.id`,[m.id,start,end]),
       ]);
-      astronauts.push({id:m.id,checkIns:checkins.rows,vitals:vitals.rows,sleep:sleep.rows,events:events.rows,decisions:decisions.rows,medications:medications.rows,plans:plans.rows});
+      astronauts.push({id:m.id,checkIns:checkins.rows,vitals,sleep:sleep.rows,events:events.rows,decisions:decisions.rows,medications:medications.rows,plans:plans.rows});
     }
     const data=await runPython(['-m','overview','weekly'],{periodStart:start,periodEnd:end,astronauts});
     const q=await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,period_start,period_end,status,summary,raw_data,flagged_issues)
@@ -393,13 +404,13 @@ async function runAgent(c, command, body) {
   if(command!=='assess' && astr!==c.astronaut.id) throw new HttpError(403,'This agent action is available only for your own astronaut account.');
   if(command==='assess') {
     const [vital,sleep,mental,checks,events]=await Promise.all([
-      c.query('SELECT * FROM vital_samples WHERE astronaut_id=$1 AND observed_at>now()-interval \'24 hours\' ORDER BY observed_at DESC',[astr]),
+      vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString()),
       c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 ORDER BY started_at DESC LIMIT 7',[astr]),
       c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1',[astr]),
       c.query('SELECT * FROM check_in_answers WHERE check_in_id=(SELECT id FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1)',[astr]),
       c.query("SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at>now()-interval '24 hours' ORDER BY started_at DESC",[astr]),
     ]);
-    const day={astronautId:astr,date:body.date||new Date().toISOString().slice(0,10),vitals24h:vital.rows,sleep:sleep.rows,
+    const day={astronautId:astr,date:body.date||new Date().toISOString().slice(0,10),vitals24h:vital,sleep:sleep.rows,
       mental:mental.rows[0]?{score:mental.rows[0].mental_health_score}:null,checkIn:{record:mental.rows[0]||null,answers:checks.rows},watchEvents:events.rows};
     const data=await runPython(['-m','overview','assess'],day);
     const assessment=(await c.query(`INSERT INTO health_assessments(astronaut_id,window_start,window_end,root_cause_summary,contributing_data,urgency)
@@ -420,23 +431,26 @@ async function runAgent(c, command, body) {
     const data=await runPython(['-m','overview','checkin'],{...body,astronautId:astr});
     const date=body.date||new Date().toISOString().slice(0,10);
     const transcript=[...messages,{from:'agent',text:data.message?.text||'',at:data.message?.at||Date.now()}];
+    // sleep is stored once, by the message that completes the check-in, not again for every later message
+    const wasCompleted=(await c.query('SELECT status FROM check_ins WHERE astronaut_id=$1 AND check_in_date=$2',[astr,date])).rows[0]?.status==='completed';
     const q=await c.query(`INSERT INTO check_ins(astronaut_id,check_in_date,started_at,completed_at,status,mood_score,mental_health_score,reported_symptoms,agent_summary,transcript)
       VALUES($1,$2,now(),CASE WHEN $3 THEN now() ELSE NULL END,CASE WHEN $3 THEN 'completed' ELSE 'in_progress' END,$4,$5,$6,$7,$8::jsonb)
       ON CONFLICT(astronaut_id,check_in_date) DO UPDATE SET completed_at=EXCLUDED.completed_at,status=EXCLUDED.status,mood_score=EXCLUDED.mood_score,
         mental_health_score=COALESCE(EXCLUDED.mental_health_score,check_ins.mental_health_score),reported_symptoms=COALESCE(EXCLUDED.reported_symptoms,check_ins.reported_symptoms),agent_summary=EXCLUDED.agent_summary,transcript=EXCLUDED.transcript RETURNING id`,
         [astr,date,data.completed,data.mental?.score??null,data.mental?.score??null,data.answers?.symptoms??null,data.message?.text??null,JSON.stringify(transcript)]);
     const checkId=q.rows[0].id;
-    const answers={sleepHours:data.answers?.sleepHours,sleepRating:data.answers?.sleepRating,symptoms:data.answers?.symptoms,...(data.answers||{}),...(data.mental?{mentalAnswers:data.mental.answers}:{})};
+    const answers={...(data.answers||{}),...(data.mental?{mentalAnswers:data.mental.answers}:{})};
+    // lists (the five mental-health answers) are kept as JSON text; neither value column could hold them before
     for(const [key,value] of Object.entries(answers)) if(value!==undefined&&value!==null) await c.query(`INSERT INTO check_in_answers(check_in_id,question_key,answer_text,answer_number) VALUES($1,$2,$3,$4)
-      ON CONFLICT(check_in_id,question_key) DO UPDATE SET answer_text=EXCLUDED.answer_text,answer_number=EXCLUDED.answer_number,answered_at=now()`,[checkId,key,typeof value==='string'?value:null,typeof value==='number'?value:null]);
-    if(data.completed&&Number.isFinite(data.answers?.sleepHours)) await c.query(`INSERT INTO sleep_sessions(astronaut_id,started_at,ended_at,source,reported_hours,quality_score,notes)
+      ON CONFLICT(check_in_id,question_key) DO UPDATE SET answer_text=EXCLUDED.answer_text,answer_number=EXCLUDED.answer_number,answered_at=now()`,[checkId,key,typeof value==='string'?value:typeof value==='object'?JSON.stringify(value):null,typeof value==='number'?value:null]);
+    if(data.completed&&!wasCompleted&&Number.isFinite(data.answers?.sleepHours)) await c.query(`INSERT INTO sleep_sessions(astronaut_id,started_at,ended_at,source,reported_hours,quality_score,notes)
       VALUES($1,now()-interval '1 day',now()-interval '1 day'+($2*interval '1 hour'),'check_in',$2,$3,$4)`,[astr,data.answers.sleepHours,data.answers.sleepRating?data.answers.sleepRating*20:null,data.answers.symptoms]);
     return { ...data, checkInId:checkId };
   }
   if(command==='chat') {
-    const vitals=await c.query('SELECT * FROM vital_samples WHERE astronaut_id=$1 ORDER BY observed_at DESC LIMIT 288',[astr]);
+    const vitals=await vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString());
     const mental=await c.query('SELECT mental_health_score FROM check_ins WHERE astronaut_id=$1 AND mental_health_score IS NOT NULL ORDER BY check_in_date DESC LIMIT 1',[astr]);
-    const data=await runPython(['-m','overview','chat'],{...body,context:{vitals:vitals.rows,mental:mental.rows[0]||null}});
+    const data=await runPython(['-m','overview','chat'],{...body,context:{vitals24h:vitals,mental:mental.rows[0]||null}});
     const safeSummary=mental.rows[0]?.mental_health_score==null?'Private manager-agent chat closed.':`Private manager-agent chat closed; latest mental-health score is ${mental.rows[0].mental_health_score}/100.`;
     // the client sends the whole history each turn: keep one conversation and store only what is new
     const messages=Array.isArray(body.messages)?body.messages:[];
@@ -473,6 +487,8 @@ const jitter=(n,spread)=>Number((n+(Math.random()-.5)*spread).toFixed(1));
 async function watchTick() {
   const crew=await watchTransaction(async c => (await c.query(`SELECT a.id,a.callsign,a.mission_id,lower(m.destination) AS location
     FROM astronauts a JOIN missions m ON m.id=a.mission_id WHERE a.active ORDER BY a.mission_id,a.command_rank`)).rows);
+  if(!crew.length) return;
+  const inputs=[];
   for(const member of crew) {
     const b=BASELINES[member.callsign.toLowerCase()] || {hr:68,sys:118,dia:76,spo2:98,temp:36.7};
     const reading={hr_mean:jitter(b.hr,5),hr_std:jitter(1.8,1),acc_std:jitter(1.1,.8),eda_mean:jitter(.35,.2),eda_slope:jitter(0,.04),
@@ -480,11 +496,15 @@ async function watchTick() {
     const lastDoseRows=await watchTransaction(async c => (await c.query(`SELECT ce.condition_key,extract(epoch from max(me.administered_at)) AS at
       FROM medication_events me JOIN condition_events ce ON ce.id=me.condition_event_id
       WHERE me.astronaut_id=$1 AND me.status='administered' AND me.administered_at>now()-interval '1 day' GROUP BY ce.condition_key`,[member.id])).rows);
-    const lastDose=Object.fromEntries(lastDoseRows.map(r=>[r.condition_key,Number(r.at)]));
-    let result;
-    try { result=await runPython(['-m','watch.backend_worker'],{reading,lastDose},12_000); }
-    // a server-side failure says nothing about the astronaut's watch: log it, raise no crew alert
-    catch(e) { console.error(`watch worker for ${member.callsign}:`,e.message); continue; }
+    inputs.push({reading,lastDose:Object.fromEntries(lastDoseRows.map(r=>[r.condition_key,Number(r.at)]))});
+  }
+  // one Python process per tick: scikit-learn and the model load once, not once per astronaut
+  let results;
+  try { results=(await runPython(['-m','watch.backend_worker'],{crew:inputs},12_000*crew.length)).results; }
+  // a server-side failure says nothing about the astronauts' watches: log it, raise no crew alert
+  catch(e) { console.error('watch worker:',e.message); return; }
+  for(const [i,member] of crew.entries()) {
+    const {reading}=inputs[i]; const result=results[i];
     const decision=result.decision; const metric={hr:reading.hr_mean,sys:reading.bp_sys,dia:reading.bp_dia,spo2:reading.spo2,temp:reading.temp,radiation:reading.radiation};
     await watchTransaction(async c=>{
       await c.query(`INSERT INTO vital_samples(astronaut_id,observed_at,source,activity,heart_rate_bpm,systolic_mmhg,diastolic_mmhg,spo2_percent,temperature_c,radiation_rate,radiation_rate_unit,sensor_status,payload)
@@ -527,6 +547,7 @@ async function watchTick() {
 
 async function processDeadlines() {
   await watchTransaction(async c=>{
+    await c.query('DELETE FROM sessions WHERE expires_at<now()');
     const reports=await c.query(`UPDATE mission_reports SET status='replied'
       WHERE status='sent' AND reply_due_at<=now() RETURNING id,report_type`);
     for(const report of reports.rows) {

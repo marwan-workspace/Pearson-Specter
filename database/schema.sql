@@ -775,6 +775,10 @@ CREATE POLICY report_replies_read ON mission_command_replies FOR SELECT TO app_u
 CREATE POLICY leader_report_insert ON mission_reports FOR INSERT TO app_user WITH CHECK (
     report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id()
 );
+-- lets the leader rewrite this week's report (POST /backend/weekly upserts on the period index)
+CREATE POLICY leader_report_update ON mission_reports FOR UPDATE TO app_user
+    USING (report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id())
+    WITH CHECK (report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id());
 CREATE POLICY subject_emergency_report_insert ON mission_reports FOR INSERT TO app_user WITH CHECK (
     report_type = 'emergency' AND (astronaut_id = app_astronaut_id() OR decider_for(astronaut_id) = app_astronaut_id())
 );

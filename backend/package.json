@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "seed:accounts": "node seed-accounts.js"
+    "seed:accounts": "node seed-accounts.js",
+    "test": "node --test"
   },
   "dependencies": {
     "pg": "^8.16.3"
