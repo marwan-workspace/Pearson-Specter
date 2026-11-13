@@ -1,0 +1,9 @@
+{
+  "astronautId": "kwame",
+  "date": "2026-11-13",
+  "vitals24h": { "heartRateAvg": 81, "heartRateBaseline": 73, "systolicAvg": 124, "spo2Min": 96, "radiationMax": 2.1 },
+  "sleep": { "hours": 4.6, "cycles": 3, "efficiency": 71, "selfRated": 2, "trend": "falling for 7 nights" },
+  "mental": { "score": 45, "twoWeeksAgo": 80 },
+  "checkIn": { "symptoms": "Wakes at 03:00. A few minutes of breathlessness in the node yesterday." },
+  "watchEvents": [ { "condition": "panic_attack", "tier": 2, "action": "ask_confirm" } ]
+}

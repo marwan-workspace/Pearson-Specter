@@ -12,7 +12,7 @@ Each astronaut wears a watch that reads vitals, checks them with a hybrid of mac
 |---|---|---|
 | Dashboard | Yes | |
 | Watch ML model, LLM and rule set | Yes | Code in `watch/`. ML detects, the LLM (Gemini) decides |
-| Manager agent | Yes | |
+| Manager agent | Yes | Code in `overview/`. Gemini runs the daily check-in, root cause, treatment plan, chat and weekly report. Called as `python -m overview <command>` with JSON in and JSON out, shaped like the frontend's types |
 | Physical watch | No | Vitals are simulated or replayed from datasets (feature 10) |
 | Medication delivery hardware | No | "Administers meds" is a logged event shown on the dashboard |
 

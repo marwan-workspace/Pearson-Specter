@@ -1,0 +1,10 @@
+{
+  "periodStart": "2026-11-07",
+  "periodEnd": "2026-11-13",
+  "astronauts": [
+    { "id": "elena", "name": "Elena Ruiz", "sleepHoursAvg": 7.4, "mentalScores": [85, 85, 90, 80, 85, 90, 85], "watchEvents": [], "plan": [] },
+    { "id": "kwame", "name": "Kwame Mensah", "sleepHoursAvg": 4.9, "mentalScores": [70, 65, 60, 55, 50, 45, 45],
+      "watchEvents": [ { "condition": "panic_attack", "tier": 2 } ],
+      "plan": [ { "kind": "sleep", "text": "Fixed sleep window 22:00 to 06:00", "approval": "pending-mission-command" } ] }
+  ]
+}

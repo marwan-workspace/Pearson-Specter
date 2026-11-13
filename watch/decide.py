@@ -1,8 +1,9 @@
 """LLM half of the watch: Gemini picks the condition; the response for it comes from rules.json."""
 import json
-import os
 import time
 from pathlib import Path
+
+import llm
 
 RULES = json.loads((Path(__file__).parent / "rules.json").read_text())
 BY_NAME = {c["name"]: c for c in RULES["conditions"]}
@@ -10,30 +11,15 @@ NONE = {"tier": 0, "first_response": "", "medication": ""}
 # flags the LLM is not allowed to answer "none" to
 MUST_ACT = {c["flag"] for c in RULES["conditions"] if c["tier"] == 1} | {"sensor_fault"}
 
-# the key lives in the repo's git-ignored .env; a real environment variable wins
-_env = Path(__file__).parent.parent / ".env"
-for _line in _env.read_text().splitlines() if _env.exists() else []:
-    _key, _sep, _value = _line.partition("=")
-    if _sep and not _key.lstrip().startswith("#"):
-        os.environ.setdefault(_key.strip(), _value.strip().strip("\"'"))
+SCHEMA = {
+    "type": "object",
+    "properties": {"condition": {"type": "string", "enum": [*BY_NAME, "none"]},
+                   "explanation": {"type": "string"}},
+    "required": ["condition", "explanation"]}
 
 
 def ask_gemini(prompt):
-    from google import genai  # reads GEMINI_API_KEY from the environment
-
-    # keep a reference: a temporary client is closed before the request is sent.
-    # timeout is in ms: an emergency must not wait on the network
-    client = genai.Client(http_options={"timeout": 8000})
-    reply = client.interactions.create(
-        model=os.environ.get("GEMINI_MODEL", "gemini-4-hydrogen"),
-        input=prompt,
-        response_format={"type": "text", "mime_type": "application/json", "schema": {
-            "type": "object",
-            "properties": {"condition": {"type": "string", "enum": [*BY_NAME, "none"]},
-                           "explanation": {"type": "string"}},
-            "required": ["condition", "explanation"]}},
-    )
-    return reply.output_text
+    return llm.ask(prompt, SCHEMA, timeout_s=8)  # an emergency must not wait on the network
 
 
 def fallback(state, flags):
