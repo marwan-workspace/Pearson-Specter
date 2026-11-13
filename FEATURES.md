@@ -4,14 +4,14 @@ NASA Space Apps hackathon project. Challenge: health vitals monitoring.
 
 ## The idea
 
-Each astronaut wears a watch that reads vitals, runs them through a machine learning model, catches problems early and gives life-saving medication on the spot. A dashboard on the ship, where astronauts check in daily, tracks sleep, mental health and watch data to find the underlying cause of emergencies. A manager agent coordinates the watch and dashboard data and reports to mission command on Earth.
+Each astronaut wears a watch that reads vitals, checks them with an LLM working from a rule set built from the data, catches problems early and gives life-saving medication on the spot. A dashboard on the ship, where astronauts check in daily, tracks sleep, mental health and watch data to find the underlying cause of emergencies. A manager agent coordinates the watch and dashboard data and reports to mission command on Earth.
 
 ## What we build for the hackathon
 
 | Part | Built? | Notes |
 |---|---|---|
 | Dashboard | Yes | |
-| Watch ML model | Yes | |
+| Watch LLM and rule set | Yes | Rules are derived from the datasets. No trained machine learning model |
 | Manager agent | Yes | |
 | Physical watch | No | Vitals are simulated or replayed from datasets (feature 10) |
 | Medication delivery hardware | No | "Administers meds" is a logged event shown on the dashboard |
@@ -29,7 +29,10 @@ Priorities were assigned by the project manager pass and have not been reviewed 
 ### Watch
 
 #### 7. Vitals monitoring and on-the-spot medication — Must
-The watch reads vitals, runs them through an ML model, and responds to a detected problem.
+The watch reads vitals, an LLM checks them against a rule set, and the watch responds to a detected problem.
+
+- **Rule set:** thresholds and patterns for each condition, derived from the datasets. The LLM applies the rules to the incoming vitals; there is no trained machine learning model.
+- **Who decides:** the LLM decides every response, including tier 1 automatic injections. An LLM can misapply a rule, so the cancel window and dose limits (feature 12) are the safeguard.
 
 - **Vitals read:** heart rate, blood pressure, radiation dose, sleep, blood oxygen, body temperature.
 - **Conditions detected:** tachycardia, bradycardia, radiation sickness, panic attack, low blood pressure, high blood pressure. Blood oxygen and temperature also allow low oxygen and fever.
@@ -37,7 +40,7 @@ The watch reads vitals, runs them through an ML model, and responds to a detecte
   1. **Automatic injection** for immediately life-threatening cases: bradycardia, shock, radiation sickness.
   2. **Confirm first** for everything else the watch can inject, including sedation for a panic attack. The astronaut confirms before the dose.
   3. **Crewmate gives it** for drugs a watch cannot inject (IV or oral). The watch alerts and tells a crewmate what to give (feature 11).
-- **False alarms:** the model uses activity context (exercise raises heart rate to tachycardia levels). Every injection has a cancel window and dose limits (feature 12).
+- **False alarms:** the rule set uses activity context (exercise raises heart rate to tachycardia levels). Every injection has a cancel window and dose limits (feature 12).
 
 Medication per condition (starting point, see warning below):
 
@@ -54,7 +57,7 @@ Medication per condition (starting point, see warning below):
 > **Warning:** this table comes from general medical knowledge. It has not been checked against NASA's medical kit or current clinical guidelines, and contains no doses. A medical reviewer must check it before it is presented as fact.
 
 #### 13. Personal baselines — Should
-The model compares each astronaut to their own normal values instead of Earth population averages, to cut false alarms.
+The rules compare each astronaut to their own normal values instead of Earth population averages, to cut false alarms.
 
 #### 19. Sensor fault detection — Later
 Tells a loose or removed watch apart from a real flatline.
@@ -98,6 +101,22 @@ Every astronaut's status at a glance for the commander or medical officer.
 #### 15. Blood test entry — Later
 Periodic lab results (blood count, metabolic panel) entered on the dashboard. These are lab draws, not something the watch reads.
 
+#### 20. Mars delay bar — Should
+- A slider at the top of the dashboard: ISS → Moon → Mars.
+- The further out, the longer Earth takes to answer. At Mars the system acts as the doctor.
+- Affects everything that waits on Earth: non-urgent treatment plan approval (4), weekly and emergency reports (6), and replies from mission command.
+- This is the story that ties the features together in the demo.
+
+#### 21. Gravity drop test — Should
+- Answers: "If this astronaut landed on Mars or Earth right now, how fragile are their bones?"
+- Uses the NHANES femur bone scans as the baseline and published spaceflight bone-loss rates to estimate current bone density from time in space.
+- Calculated from rules, in line with the no-ML decision.
+
+#### 22. Heartbeat in a bottle — Should
+- An astronaut cannot call home live from Mars, so when their stress spikes the system plays a recorded heartbeat from their family.
+- Triggered by the watch's stress detection.
+- The emotional moment in the demo video.
+
 ### Manager agent
 
 #### 9. Manager agent — Must
@@ -117,7 +136,7 @@ When the watch detects a problem, other astronauts are told who is in trouble an
 Records every dose, enforces dose limits and the cancel window, and tracks what is left on board.
 
 #### 17. Decision log — Later
-Every model and agent decision is stored with its reason and included in the weekly report.
+Every watch and agent decision is stored with the rule that fired and the reason, and included in the weekly report.
 
 #### 18. Works without Earth contact — Later
 Nothing depends on a live link to Earth. Reports queue up until contact returns.
@@ -135,7 +154,7 @@ All under `raw/raw/`.
 |---|---|---|---|
 | `astronaut_blood_inspiration4` | Blood count, metabolic panel, immune and cardiovascular markers | Blood test entry (15) | 28 samples from 4 crew |
 | `earth_heart_bp` | 66 records of walk, sit, run with blood pressure, heart rate, blood oxygen | Activity context | Start and end values only; waveforms not in the folder |
-| `nhanes` | 2005–2008 blood pressure, cholesterol, glucose, body measures, medical history, mortality | Long-term risk | One-off measurements, not live streams |
+| `nhanes` | 2005–2008 blood pressure, cholesterol, glucose, body measures, femur bone scans, medical history, mortality | Long-term risk, gravity drop test (21) | One-off measurements, not live streams |
 | `radiation` | Dose-rate time series for ISS, Mars, Moon | Radiation tracker (14), simulator (10) | No health outcome attached |
 | `sleep` | 5 sleep-stage recordings and a subject sheet | Sleep tracker (1) | Stages only, very small |
 | `wearable_stress_exercise` | Wristband heart rate, skin temperature, skin conductance, motion during stress and exercise | Panic detection, false-alarm handling | No blood oxygen |
@@ -147,6 +166,10 @@ The last two are from PhysioNet under the Open Data Commons Attribution License 
 
 ## Open questions
 
+- **Which LLM:** not decided, including whether it runs on board without Earth contact.
+- **Rule set:** who derives the rules from the data, and how, is not decided.
+- **Bone-loss rates:** the published rates for feature 21 have not been chosen or sourced.
+- **Family recordings:** where the heartbeat recordings for feature 22 come from for the demo.
 - **Radiation sickness detection:** no dataset links dose to symptoms. Needs dose-threshold rules or simulated cases.
 - **Mental health questions:** which set of questions and scoring to use is not decided.
 - **"Urgent":** what makes a treatment plan urgent is not defined.
