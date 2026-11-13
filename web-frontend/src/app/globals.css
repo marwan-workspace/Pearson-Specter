@@ -1,0 +1,174 @@
+@import 'tailwindcss';
+
+/*
+ * Theme: NASA palette (NASA blue #0B3D91, NASA red #FC3D21, white) on a deep-space background.
+ * Status colours always ship with an icon + label (never colour alone).
+ */
+:root {
+  --space-0: #02040b;
+  --space-1: #0a1124;
+  --space-2: #101a33;
+  --space-3: #182446;
+  --line: rgba(160, 190, 255, 0.12);
+  --line-strong: rgba(160, 190, 255, 0.26);
+
+  --nasa-blue: #0b3d91;
+  --nasa-blue-bright: #4d8dff;
+  --nasa-red: #fc3d21;
+  --white: #ffffff;
+  --text-2: #bcc7dd;
+  --text-3: #8592ad;
+
+  --nominal: #2fd27a;
+  --watch: #ffb020;
+  --critical: #fc3d21;
+  --agent: #a99bff;
+
+  --chart-1: #4d8dff;
+  --chart-2: #ff8a5c;
+  --chart-3: #36c9b4;
+}
+
+@theme inline {
+  --color-space-0: var(--space-0);
+  --color-space-1: var(--space-1);
+  --color-space-2: var(--space-2);
+  --color-space-3: var(--space-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-nasa-blue: var(--nasa-blue);
+  --color-nasa-bright: var(--nasa-blue-bright);
+  --color-nasa-red: var(--nasa-red);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-nominal: var(--nominal);
+  --color-watch: var(--watch);
+  --color-critical: var(--critical);
+  --color-agent: var(--agent);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --font-sans: 'Inter', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+
+html {
+  background: var(--space-0);
+  color: var(--white);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Deep-space backdrop: stars + faint NASA-blue / red nebula */
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1px 1px at 12% 18%, #fff8 50%, transparent 51%),
+    radial-gradient(1px 1px at 72% 9%, #fff9 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 38% 62%, #fff7 50%, transparent 51%),
+    radial-gradient(1px 1px at 88% 44%, #fff6 50%, transparent 51%),
+    radial-gradient(1px 1px at 22% 84%, #fff8 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 58% 30%, #fff5 50%, transparent 51%),
+    radial-gradient(1px 1px at 93% 78%, #fff7 50%, transparent 51%),
+    radial-gradient(1px 1px at 5% 50%, #fff6 50%, transparent 51%),
+    radial-gradient(900px 600px at 85% -10%, rgba(11, 61, 145, 0.35), transparent 70%),
+    radial-gradient(700px 500px at -10% 110%, rgba(252, 61, 33, 0.12), transparent 70%),
+    var(--space-0);
+  background-attachment: fixed;
+  background-size: 420px 420px, 380px 380px, 520px 520px, 460px 460px, 400px 400px, 600px 600px, 350px 350px, 480px 480px, auto, auto, auto;
+}
+
+:focus-visible {
+  outline: 2px solid var(--nasa-blue-bright);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.panel {
+  background: linear-gradient(180deg, rgba(16, 26, 51, 0.88), rgba(10, 17, 36, 0.92));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  backdrop-filter: blur(6px);
+}
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  transition: filter 0.15s, background 0.15s;
+}
+.btn:hover {
+  filter: brightness(1.12);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--nasa-blue);
+  color: #fff;
+  border: 1px solid #2a63c9;
+}
+.btn-red {
+  background: var(--nasa-red);
+  color: #fff;
+}
+.btn-ghost {
+  border: 1px solid var(--line-strong);
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(252, 61, 33, 0.55); }
+  60% { box-shadow: 0 0 0 10px rgba(252, 61, 33, 0); }
+}
+.pulse-red {
+  animation: pulse-red 2s ease-out infinite;
+}
+@keyframes blink {
+  50% { opacity: 0.3; }
+}
+.blink {
+  animation: blink 1.6s ease-in-out infinite;
+}
+
+.recharts-cartesian-grid line {
+  stroke: rgba(160, 190, 255, 0.1);
+}
+.recharts-text {
+  fill: var(--text-3);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@keyframes hb {
+  0%, 100% { transform: scale(1); }
+  12% { transform: scale(1.25); }
+  24% { transform: scale(1); }
+  36% { transform: scale(1.15); }
+}
