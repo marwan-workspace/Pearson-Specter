@@ -1,5 +1,6 @@
 """python -m unittest discover tests"""
 import json
+import os
 import unittest
 
 from watch.decide import RULES, decide, fallback
@@ -36,7 +37,7 @@ class WatchTest(unittest.TestCase):
         self.assertIn("atropine", d["medication"])
 
     def test_llm_cannot_inject_without_a_flag(self):
-        _, _, d = run({}, {"condition": "bradycardia", "explanation": "made up"})
+        _, _, d = run(SCENARIOS["hard exercise"], {"condition": "bradycardia", "explanation": "made up"})
         self.assertEqual((d["source"], d["condition"], d["action"]), ("fallback", "none", "none"))
 
     def test_llm_down_still_treats_the_most_severe_flag(self):
@@ -62,6 +63,18 @@ class WatchTest(unittest.TestCase):
             self.assertEqual((raised, d["condition"], d["action"]), (["sensor_fault"], "sensor_fault", "alert_crewmate"))
         self.assertEqual(run({"hr_mean": float("nan")})[0], "unknown")
         self.assertEqual(run({"location": "ISS"})[1], [])
+
+    def test_low_oxygen_alerts(self):
+        _, raised, d = run({"spo2": 82})
+        self.assertEqual((raised, d["condition"], d["action"]), (["spo2_low"], "low_oxygen", "alert_crewmate"))
+
+    def test_no_flag_means_no_llm_call(self):
+        self.assertEqual(run({})[2]["source"], "rules")
+
+    @unittest.skipUnless(os.environ.get("GEMINI_API_KEY"), "needs GEMINI_API_KEY (decide.py loads it from .env)")
+    def test_real_gemini_call(self):
+        d = decide({**CALM, "hr_mean": 36}, "rest", ["hr_low"], BASE, {})
+        self.assertEqual((d["source"], d["condition"]), ("llm", "bradycardia"), d["explanation"])
 
 
 if __name__ == "__main__":

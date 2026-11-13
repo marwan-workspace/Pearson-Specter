@@ -37,7 +37,7 @@ The watch reads vitals, a hybrid of machine learning and an LLM checks them, and
 - **Safeguards:** the LLM cannot choose a condition whose flag is not raised. If the LLM is unreachable or its answer is rejected, the rules are applied directly, most severe first. The LLM cannot answer "none" while a tier 1 flag or a sensor fault is raised. A second automatic injection for the same condition is blocked for 30 minutes (unverified value) and becomes a crewmate alert. A missing or invalid sensor value raises a sensor fault instead of reading as healthy. The cancel window and stock tracking (feature 12) are not built yet.
 
 - **Vitals read:** heart rate, blood pressure, radiation dose, sleep, blood oxygen, body temperature.
-- **Conditions detected:** tachycardia, bradycardia, radiation sickness, panic attack, low blood pressure, high blood pressure. Blood oxygen and temperature also allow low oxygen and fever.
+- **Conditions detected:** tachycardia, bradycardia, radiation sickness, panic attack, low blood pressure, high blood pressure. Low blood oxygen (below 90%) is also detected and alerts a crewmate. Fever is not checked yet.
 - **Response tiers:**
   1. **Automatic injection** for immediately life-threatening cases: bradycardia, shock.
   2. **Confirm first** for everything else the watch can inject, including sedation for a panic attack. The astronaut confirms before the dose.
@@ -169,7 +169,7 @@ The last two are from PhysioNet under the Open Data Commons Attribution License 
 ## Open questions
 
 - **LLM without Earth contact:** Gemini is a cloud API, so it conflicts with feature 18. The rules-only fallback covers the gap for now.
-- **Activity model accuracy:** it separates exercise from non-exercise about 77% of the time but cannot reliably tell rest from stress, which weakens panic attack detection. Needs the stress-stage tags parsed for better labels.
+- **Activity model accuracy:** stress tasks are now labelled from the dataset's stage tags, but the model is still weak: it finds 76% of exercise minutes, 57% of rest minutes and 43% of stress minutes on people it has not seen. There are only 220 stress minutes to learn from, which limits panic attack detection.
 - **Thresholds:** the high heart rate and radiation limits come from the data; low heart rate and blood pressure limits are fixed clinical values. All need medical review.
 - **Bone-loss rates:** the published rates for feature 21 have not been chosen or sourced.
 - **Family recordings:** where the heartbeat recordings for feature 22 come from for the demo.

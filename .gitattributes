@@ -1,0 +1,9 @@
+raw/**/*.R filter=lfs diff=lfs merge=lfs -text
+raw/**/*.breath filter=lfs diff=lfs merge=lfs -text
+raw/**/*.csv filter=lfs diff=lfs merge=lfs -text
+raw/**/*.dat filter=lfs diff=lfs merge=lfs -text
+raw/**/*.edf filter=lfs diff=lfs merge=lfs -text
+raw/**/*.hea filter=lfs diff=lfs merge=lfs -text
+raw/**/*.mat filter=lfs diff=lfs merge=lfs -text
+raw/**/*.xls filter=lfs diff=lfs merge=lfs -text
+raw/**/*.xpt filter=lfs diff=lfs merge=lfs -text

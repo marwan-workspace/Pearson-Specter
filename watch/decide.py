@@ -21,7 +21,9 @@ for _line in _env.read_text().splitlines() if _env.exists() else []:
 def ask_gemini(prompt):
     from google import genai  # reads GEMINI_API_KEY from the environment
 
-    client = genai.Client()  # keep a reference: a temporary client is closed before the request is sent
+    # keep a reference: a temporary client is closed before the request is sent.
+    # timeout is in ms: an emergency must not wait on the network
+    client = genai.Client(http_options={"timeout": 8000})
     reply = client.interactions.create(
         model=os.environ.get("GEMINI_MODEL", "gemini-4-hydrogen"),
         input=prompt,
@@ -44,6 +46,10 @@ def fallback(state, flags):
 
 def decide(reading, state, flags, baselines, last_dose, ask=ask_gemini, now=None):
     """last_dose: one dict per astronaut, kept by the caller, of condition -> time of its last automatic injection."""
+    if not flags:  # nothing abnormal: the only possible answer is none, so do not call the LLM
+        return {"condition": "none", "tier": 0, "action": "none", "first_response": "", "medication": "",
+                "explanation": "No flag raised.", "source": "rules"}
+    limits = {k: baselines[k] for k in ("rest_hr_high", "radiation_high")}
     prompt = (
         "You are the decision step of an astronaut's medical watch. Choose the one condition "
         "the astronaut has right now, or 'none'. A condition is only possible if its flag is "
@@ -51,7 +57,7 @@ def decide(reading, state, flags, baselines, last_dose, ask=ask_gemini, now=None
         "comes from a classifier and can be wrong, so weigh it against the vitals. A high heart "
         "rate during exercise is normal. Explain in two sentences.\n"
         f"Rules: {json.dumps(RULES['conditions'])}\n"
-        f"Baselines from data: {json.dumps(baselines)}\n"
+        f"Limits from data: {json.dumps(limits)}\n"
         f"Vitals (last 60 s): {json.dumps(reading)}\n"
         f"Activity: {state}\nFlags raised: {flags}"
     )

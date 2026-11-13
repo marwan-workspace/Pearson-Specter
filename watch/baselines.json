@@ -1,14 +1,14 @@
 {
-  "rest_hr_high": 122.7,
+  "rest_hr_high": 124.4,
   "radiation_high": {
     "iss": 544.74,
     "moon": 9201.35,
     "mars": 19.66
   },
-  "cv_balanced_accuracy": 0.537,
+  "cv_balanced_accuracy": 0.589,
   "training_windows": {
     "exercise": 1984,
-    "stress": 1162,
-    "rest": 360
+    "rest": 1302,
+    "stress": 220
   }
 }

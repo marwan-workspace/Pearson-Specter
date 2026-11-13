@@ -17,6 +17,10 @@ FEATURES = ["hr_mean", "hr_std", "acc_std", "eda_mean", "eda_slope", "temp_mean"
 WEARABLE = ("wearable_stress_exercise/wearable-device-dataset-from-induced-stress-and-"
             "structured-exercise-sessions-1.0.1/Wearable_Dataset")
 BAD = {("STRESS", "f07")}  # dock left on the wristband: HR and TEMP invalid (data_constraints.txt)
+# Stress tasks run between these pairs of button presses (0-based rows of tags.csv); the rest of a
+# stress session is baseline and rest breaks. Taken from Wearable_Dataset.ipynb. Keyed by tag count:
+# 13 = protocol version 1 (S subjects), 9 = version 2 (f subjects), 0 = baseline-only recording.
+STRESS_TASKS = {13: [(2, 3), (4, 5), (6, 7), (8, 9), (10, 11)], 9: [(1, 2), (3, 4), (5, 6), (7, 8)], 0: []}
 
 
 def _read(path):
@@ -56,12 +60,16 @@ def training_table(data_dir):
                 continue
             w = session_windows(folder)
             if protocol == "STRESS":
-                # shortcut: everything after the first tag counts as stress, including the rest
-                # breaks between tasks; parse the stage tags if stress accuracy matters
                 tags = folder / "tags.csv"
-                first = pd.Timestamp(_read(tags).iat[0, 0]) if tags.stat().st_size else pd.Timestamp.max
-                w["state"] = np.where(w.index < first, "rest", "stress")
+                times = pd.to_datetime(_read(tags)[0]) if tags.stat().st_size else []
+                if len(times) not in STRESS_TASKS:
+                    continue  # button presses missing, so task boundaries are unknown
+                w["state"] = "rest"
+                for a, b in STRESS_TASKS[len(times)]:
+                    w.loc[(w.index >= times[a]) & (w.index < times[b]), "state"] = "stress"
             else:
+                # shortcut: the whole session counts as exercise, warm-up and cool-down included;
+                # the exercise tag layouts are only documented as images
                 w["state"] = "exercise"
             w["subject"] = folder.name.split("_")[0]
             rows.append(w)
@@ -109,11 +117,12 @@ def flags(reading, baselines, thresholds):
     location = str(r.get("location", "")).lower()
     # a missing or NaN vital compares False against every limit, which would read as healthy
     if location not in baselines["radiation_high"] or any(
-            not isinstance(r.get(k), Real) or not math.isfinite(r[k]) for k in ("hr_mean", "bp_sys", "radiation")):
+            not isinstance(r.get(k), Real) or not math.isfinite(r[k]) for k in ("hr_mean", "bp_sys", "spo2", "radiation")):
         return ["sensor_fault"]
     checks = {
         "hr_low": r["hr_mean"] < t["hr_low"],
         "hr_high": r["hr_mean"] > baselines["rest_hr_high"],
+        "spo2_low": r["spo2"] < t["spo2_low"],
         "bp_shock": r["bp_sys"] < t["bp_sys_shock"],
         "bp_low": t["bp_sys_shock"] <= r["bp_sys"] < t["bp_sys_low"],
         "bp_high": r["bp_sys"] > t["bp_sys_high"],
