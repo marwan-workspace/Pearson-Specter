@@ -1,0 +1,39 @@
+flowchart TD
+    V[Simulated or watch vitals] --> S[Store timestamped sample with activity context]
+    S --> R{Does an active rule match?}
+    R -->|No| M[Continue monitoring]
+    M --> V
+    R -->|Yes| D[Watch LLM records condition and rationale]
+    D --> T{Response tier}
+
+    T -->|Tier 1: immediate threat| A[Log automatic injection event with cancel window and stock update]
+    A --> C[Alert crew and manager agent]
+    T -->|Tier 2: confirm first| P[Ask astronaut to confirm]
+    P -->|Confirm| I[Log confirmed injection event]
+    P -->|Cancel or decline| X[Cancel event and continue monitoring]
+    T -->|Tier 3: crewmate action| N[Alert crewmate with response instructions]
+    C --> E[Track event and response]
+    I --> E
+    X --> E
+    N --> E
+
+    subgraph Daily review
+        SL[Overnight sleep] --> CI[Daily astronaut check-in]
+        VH[Last 24 hours of vitals] --> CI
+        MH[Mental health answers] --> CI
+        CI --> RC[Manager agent analyzes root cause; astronaut report takes priority]
+        RC --> TP[Create treatment plan]
+        TP --> UR{Urgent?}
+        UR -->|Yes| ACT[Proceed and log plan]
+        UR -->|No| EARTH[Queue plan for mission command review]
+    end
+
+    E --> CI
+    EARTH --> DELAY[Apply mission communication delay]
+    DELAY --> REPLY[Receive mission command reply]
+    REPLY --> CREW[Show instructions to crew]
+    ACT --> CREW
+    E --> REPORT[Create emergency report]
+    CI --> WEEKLY[Create weekly crew summary]
+    REPORT --> QUEUE[Queue report until Earth contact]
+    WEEKLY --> QUEUE
