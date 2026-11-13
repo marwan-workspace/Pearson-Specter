@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useRef, useState } from 'react';
 import clsx from 'clsx';
-import { FlaskConical, Globe2, Sparkles, WifiOff } from 'lucide-react';
+import { FlaskConical, Globe2, Sparkles, Watch, WifiOff } from 'lucide-react';
 import { astronautStatus, useMission } from '@/lib/mission';
 import { useBackend } from '@/lib/backend';
 import { useDismiss, useNow } from '@/lib/hooks';
@@ -80,6 +80,12 @@ export function Header() {
 
         <div className="ml-auto flex items-center gap-2 md:gap-3">
           <Clock />
+          {/* VitaCuff 3D walkthrough: a static page in public/vitacuff, so a plain link and not a Next route */}
+          <a href="/vitacuff/index.html" target="_blank" rel="noopener" className="btn btn-sm border border-line-strong text-text-2 hover:bg-space-2 hover:text-ink" title="Open the 3D walkthrough of the VitaCuff wrist unit in a new tab">
+            <Watch className="size-4" aria-hidden />
+            <span className="hidden sm:inline">Wrist unit 3D</span>
+            <span className="sr-only sm:hidden">Open the wrist unit 3D walkthrough</span>
+          </a>
           <button
             type="button"
             onClick={() => dispatch({ type: 'earth-link', on: !s.earthLink })}
