@@ -4,14 +4,14 @@ NASA Space Apps hackathon project. Challenge: health vitals monitoring.
 
 ## The idea
 
-Each astronaut wears a watch that reads vitals, checks them with an LLM working from a rule set built from the data, catches problems early and gives life-saving medication on the spot. A dashboard on the ship, where astronauts check in daily, tracks sleep, mental health and watch data to find the underlying cause of emergencies. A manager agent coordinates the watch and dashboard data and reports to mission command on Earth.
+Each astronaut wears a watch that reads vitals, checks them with a hybrid of machine learning and an LLM working from a rule set, catches problems early and gives life-saving medication on the spot. A dashboard on the ship, where astronauts check in daily, tracks sleep, mental health and watch data to find the underlying cause of emergencies. A manager agent coordinates the watch and dashboard data and reports to mission command on Earth.
 
 ## What we build for the hackathon
 
 | Part | Built? | Notes |
 |---|---|---|
 | Dashboard | Yes | |
-| Watch LLM and rule set | Yes | Rules are derived from the datasets. No trained machine learning model |
+| Watch ML model, LLM and rule set | Yes | Code in `watch/`. ML detects, the LLM (Gemini) decides |
 | Manager agent | Yes | |
 | Physical watch | No | Vitals are simulated or replayed from datasets (feature 10) |
 | Medication delivery hardware | No | "Administers meds" is a logged event shown on the dashboard |
@@ -29,15 +29,17 @@ Priorities were assigned by the project manager pass and have not been reviewed 
 ### Watch
 
 #### 7. Vitals monitoring and on-the-spot medication — Must
-The watch reads vitals, an LLM checks them against a rule set, and the watch responds to a detected problem.
+The watch reads vitals, a hybrid of machine learning and an LLM checks them, and the watch responds to a detected problem.
 
-- **Rule set:** thresholds and patterns for each condition, derived from the datasets. The LLM applies the rules to the incoming vitals; there is no trained machine learning model.
-- **Who decides:** the LLM decides every response, including tier 1 automatic injections. An LLM can misapply a rule, so the cancel window and dose limits (feature 12) are the safeguard.
+- **ML detects:** a model trained on the wearable stress and exercise dataset labels each minute as rest, stress or exercise. Fixed checks flag abnormal readings (heart rate, blood pressure, radiation).
+- **LLM decides:** Gemini gets the vitals, the activity label, the flags and the rule set, and picks the condition. This includes tier 1 automatic injections.
+- **Rule set:** `watch/rules.json` holds each condition's flag, tier, first response and medication. The response for a chosen condition always comes from the rules, not from the LLM's text.
+- **Safeguards:** the LLM cannot choose a condition whose flag is not raised. If the LLM is unreachable or its answer is rejected, the rules are applied directly, most severe first. The LLM cannot answer "none" while a tier 1 flag or a sensor fault is raised. A second automatic injection for the same condition is blocked for 30 minutes (unverified value) and becomes a crewmate alert. A missing or invalid sensor value raises a sensor fault instead of reading as healthy. The cancel window and stock tracking (feature 12) are not built yet.
 
 - **Vitals read:** heart rate, blood pressure, radiation dose, sleep, blood oxygen, body temperature.
 - **Conditions detected:** tachycardia, bradycardia, radiation sickness, panic attack, low blood pressure, high blood pressure. Blood oxygen and temperature also allow low oxygen and fever.
 - **Response tiers:**
-  1. **Automatic injection** for immediately life-threatening cases: bradycardia, shock, radiation sickness.
+  1. **Automatic injection** for immediately life-threatening cases: bradycardia, shock.
   2. **Confirm first** for everything else the watch can inject, including sedation for a panic attack. The astronaut confirms before the dose.
   3. **Crewmate gives it** for drugs a watch cannot inject (IV or oral). The watch alerts and tells a crewmate what to give (feature 11).
 - **False alarms:** the rule set uses activity context (exercise raises heart rate to tachycardia levels). Every injection has a cancel window and dose limits (feature 12).
@@ -48,7 +50,7 @@ Medication per condition (starting point, see warning below):
 |---|---|---|---|---|
 | Bradycardia (symptomatic) | Alert crew | Atropine; epinephrine if atropine fails | Yes | 1 |
 | Shock (severe low blood pressure) | Lie down, alert crew | Epinephrine | Yes | 1 |
-| Radiation sickness | Move to shielded area | Ondansetron (nausea); filgrastim (bone marrow) | Yes | 1 |
+| Radiation sickness | Move to shielded area | Ondansetron (nausea); filgrastim (bone marrow) | Yes | 3 until a medical dose limit exists |
 | Panic attack | Guided breathing on the watch | Lorazepam or midazolam | Yes, but sedating | 2 |
 | Tachycardia (abnormal rhythm) | Breathing / vagal manoeuvres | Adenosine; metoprolol | No (IV) | 3 |
 | Low blood pressure (not shock) | Lie down, fluids | Midodrine (oral) | No | 3 |
@@ -110,7 +112,7 @@ Periodic lab results (blood count, metabolic panel) entered on the dashboard. Th
 #### 21. Gravity drop test — Should
 - Answers: "If this astronaut landed on Mars or Earth right now, how fragile are their bones?"
 - Uses the NHANES femur bone scans as the baseline and published spaceflight bone-loss rates to estimate current bone density from time in space.
-- Calculated from rules, in line with the no-ML decision.
+- Calculated from rules.
 
 #### 22. Heartbeat in a bottle — Should
 - An astronaut cannot call home live from Mars, so when their stress spikes the system plays a recorded heartbeat from their family.
@@ -166,8 +168,9 @@ The last two are from PhysioNet under the Open Data Commons Attribution License 
 
 ## Open questions
 
-- **Which LLM:** not decided, including whether it runs on board without Earth contact.
-- **Rule set:** who derives the rules from the data, and how, is not decided.
+- **LLM without Earth contact:** Gemini is a cloud API, so it conflicts with feature 18. The rules-only fallback covers the gap for now.
+- **Activity model accuracy:** it separates exercise from non-exercise about 77% of the time but cannot reliably tell rest from stress, which weakens panic attack detection. Needs the stress-stage tags parsed for better labels.
+- **Thresholds:** the high heart rate and radiation limits come from the data; low heart rate and blood pressure limits are fixed clinical values. All need medical review.
 - **Bone-loss rates:** the published rates for feature 21 have not been chosen or sourced.
 - **Family recordings:** where the heartbeat recordings for feature 22 come from for the demo.
 - **Radiation sickness detection:** no dataset links dose to symptoms. Needs dose-threshold rules or simulated cases.
