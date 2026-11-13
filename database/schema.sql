@@ -677,6 +677,17 @@ GRANT USAGE ON SCHEMA public TO app_user, watch_service;
 REVOKE ALL ON FUNCTION acting_leader(UUID), decider_for(UUID), visible_astronauts(), app_astronaut_id(),
     is_mission_crew(UUID), administer_alerted_medication(UUID,UUID), administer_watch_medication(UUID), simulate_condition(UUID,TEXT),
     simulate_sensor_fault(UUID), set_mission_earth_link(UUID,UUID,BOOLEAN), set_mission_location(UUID,UUID,TEXT), schedule_mission_report_delivery() FROM PUBLIC;
+-- Postgres lets every role run a new function, and Supabase exposes public functions at /rest/v1/rpc/.
+-- These run with the owner's rights, so only the two app roles below may call them.
+DO $$ DECLARE fns TEXT := 'acting_leader(UUID), decider_for(UUID), visible_astronauts(), is_mission_crew(UUID),
+    administer_alerted_medication(UUID,UUID), administer_watch_medication(UUID), set_mission_earth_link(UUID,UUID,BOOLEAN),
+    set_mission_location(UUID,UUID,TEXT), simulate_condition(UUID,TEXT), simulate_sensor_fault(UUID), schedule_mission_report_delivery()';
+BEGIN
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION ' || fns || ' FROM PUBLIC';
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN  -- Supabase API roles
+        EXECUTE 'REVOKE EXECUTE ON FUNCTION ' || fns || ' FROM anon, authenticated';
+    END IF;
+END $$;
 GRANT EXECUTE ON FUNCTION acting_leader(UUID), decider_for(UUID), visible_astronauts(), app_astronaut_id(), is_mission_crew(UUID), administer_alerted_medication(UUID,UUID), set_mission_earth_link(UUID,UUID,BOOLEAN), set_mission_location(UUID,UUID,TEXT) TO app_user, watch_service;
 GRANT EXECUTE ON FUNCTION administer_watch_medication(UUID) TO watch_service;
 GRANT EXECUTE ON FUNCTION simulate_condition(UUID,TEXT), simulate_sensor_fault(UUID) TO app_user;
