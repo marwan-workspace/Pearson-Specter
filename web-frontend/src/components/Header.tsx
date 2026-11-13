@@ -16,7 +16,7 @@ import { ConnectionPanel } from './ConnectionPanel';
 function Clock() {
   const now = useNow();
   return (
-    <p className="num hidden items-baseline gap-1.5 text-sm font-semibold md:flex" aria-label="Coordinated universal time">
+    <p className="num hidden items-baseline gap-1.5 text-sm font-semibold lg:flex" aria-label="Coordinated universal time">
       <span className="min-w-[8ch]">{now ? new Date(now).toISOString().slice(11, 19) : '--:--:--'}</span>
       <span className="label">UTC</span>
     </p>
@@ -47,14 +47,14 @@ export function Header() {
   useDismiss(pop !== null, () => setPop(null), panel, pop === 'sim' ? simBtn : agentBtn);
 
   const queued = s.reports.filter((r) => r.delivery === 'queued').length;
-  const agent = backend.status === 'live' ? { label: 'Gemini live', cls: 'border-agent/45 text-agent' } : backend.status === 'checking' ? { label: 'Checking agent', cls: 'border-line-strong text-text-2' } : { label: 'Simulated agent', cls: 'border-line-strong text-text-2' };
+  const agent = backend.status === 'live' ? { label: 'Gemini live', cls: 'border-agent text-agent' } : backend.status === 'checking' ? { label: 'Checking agent', cls: 'border-line-strong text-text-2' } : { label: 'Simulated agent', cls: 'border-line-strong text-text-2' };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-space-0/90 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-line bg-space-0">
       <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-3 px-4 md:gap-5 md:px-8">
         <Link href="/" className="flex items-center gap-2.5 rounded-[4px]" aria-label="Crew Health, crew overview">
           <Mark />
-          <span className="display hidden text-[15px] sm:block">Crew Health</span>
+          <span className="display hidden whitespace-nowrap text-[15px] sm:block">Crew Health</span>
         </Link>
 
         {/* Jump straight to any crew member's record from anywhere */}
@@ -70,7 +70,7 @@ export function Header() {
                 aria-current={current ? 'page' : undefined}
                 className={clsx('flex h-9 items-center gap-2 rounded-[4px] px-2.5 text-sm transition-colors duration-150', current ? 'bg-space-2 text-ink' : 'text-text-2 hover:bg-space-2 hover:text-ink')}
               >
-                <span className="grid size-6 place-items-center rounded-full bg-space-3 text-[10px] font-bold" aria-hidden>{initials(c.name)}</span>
+                <span className="grid size-6 place-items-center rounded-full bg-space-2 text-[11px] font-bold" aria-hidden>{initials(c.name)}</span>
                 {firstName(c.name)}
                 {s.ready && <I className="size-3.5" style={{ color: STATUS_META[st].color }} aria-label={STATUS_META[st].label} strokeWidth={2.5} />}
               </Link>
@@ -83,20 +83,20 @@ export function Header() {
           {/* VitaCuff 3D walkthrough: a static page in public/vitacuff, so a plain link and not a Next route */}
           <a href="/vitacuff/index.html" target="_blank" rel="noopener" className="btn btn-sm border border-line-strong text-text-2 hover:bg-space-2 hover:text-ink" title="Open the 3D walkthrough of the VitaCuff wrist unit in a new tab">
             <Watch className="size-4" aria-hidden />
-            <span className="hidden sm:inline">Wrist unit 3D</span>
-            <span className="sr-only sm:hidden">Open the wrist unit 3D walkthrough</span>
+            <span className="hidden lg:inline">Wrist unit 3D</span>
+            <span className="sr-only lg:hidden">Open the wrist unit 3D walkthrough</span>
           </a>
           <button
             type="button"
             onClick={() => dispatch({ type: 'earth-link', on: !s.earthLink })}
-            className={clsx('btn btn-sm border', s.earthLink ? 'border-line-strong text-text-2 hover:bg-space-2 hover:text-ink' : 'border-watch/60 bg-watch/10 text-watch')}
+            className={clsx('btn btn-sm border', s.earthLink ? 'border-line-strong text-text-2 hover:bg-space-2 hover:text-ink' : 'border-watch text-watch')}
             aria-pressed={s.earthLink}
             title="Switch Earth contact on or off. Reports queue while it is off."
           >
             {s.earthLink ? <Globe2 className="size-4 text-nominal" aria-hidden /> : <WifiOff className="size-4" aria-hidden />}
             <span className="hidden sm:inline">{s.earthLink ? 'Earth link' : 'No Earth contact'}</span>
             <span className="sr-only sm:hidden">{s.earthLink ? 'Earth link on' : 'No Earth contact'}</span>
-            {queued > 0 && <span className="num rounded-[3px] bg-watch px-1.5 text-xs font-bold text-black">{queued} queued</span>}
+            {queued > 0 && <span className="num rounded-[3px] bg-watch px-1.5 text-xs font-bold text-space-0">{queued} queued</span>}
           </button>
           <button ref={agentBtn} type="button" className={clsx('btn btn-sm border hover:bg-space-2', agent.cls)} onClick={() => setPop((p) => (p === 'agent' ? null : 'agent'))} aria-expanded={pop === 'agent'} aria-haspopup="dialog">
             <Sparkles className="size-4" aria-hidden />
@@ -113,7 +113,7 @@ export function Header() {
       </div>
       {pop && (
         <div className="relative mx-auto max-w-[1680px]">
-          <div ref={panel} className="pop-in panel absolute right-4 top-2 z-50 w-[min(440px,calc(100vw-2rem))] border-line-strong bg-space-1 p-4 shadow-[0_24px_64px_rgba(0,0,0,0.7)] md:right-8">
+          <div ref={panel} className="pop-in panel absolute right-4 top-2 z-50 w-[min(440px,calc(100vw-2rem))] border-line-strong bg-space-1 p-4 shadow-[0_24px_64px_rgba(3,8,18,0.8)] md:right-8">
             {pop === 'sim' ? <SimulatorPanel onClose={() => setPop(null)} /> : <ConnectionPanel onClose={() => setPop(null)} />}
           </div>
         </div>

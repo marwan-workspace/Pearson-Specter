@@ -9,7 +9,7 @@ import { useActiveSection } from '@/lib/hooks';
 import { DOSE_LIMIT_MSV, SHELTER_RATE_USV_H, byId, sleepNights, suggestedWindow, therapyRecommendation } from '@/lib/crew';
 import { CONDITIONS, EARTH_REVIEW_SEC, LOCATIONS, TIER_LABEL, scoreSeries } from '@/lib/conditions';
 import type { Astronaut, WatchEvent } from '@/lib/types';
-import { Stage } from './Stage';
+import { ReadingValue, Stage, liveReadings } from './Stage';
 import { BPChart, Hypnogram, Legend, MentalTrend, RadiationChart, SleepWeek, VitalChart } from './charts';
 import { Meter, Notice, Panel, Stat, StatusPill, STATUS_META, ago, firstName, fmtTime, scoreTone } from './ui';
 import { CheckInChat, AgentChat } from './Chats';
@@ -41,7 +41,7 @@ const EVENT_STATE: Record<WatchEvent['state'], string> = {
 function SectionNav() {
   const active = useActiveSection(SECTION_IDS);
   return (
-    <nav aria-label="Record sections" className="sticky top-14 z-30 -mx-4 border-b border-line bg-space-0/90 px-4 backdrop-blur-md md:-mx-8 md:px-8 xl:top-[72px] xl:mx-0 xl:self-start xl:border-0 xl:bg-transparent xl:px-0 xl:backdrop-blur-none">
+    <nav aria-label="Record sections" className="sticky top-14 z-30 -mx-4 border-b border-line bg-space-0 px-4 md:-mx-8 md:px-8 xl:top-[72px] xl:mx-0 xl:self-start xl:border-0 xl:bg-transparent xl:px-0">
       <div className="flex gap-1 overflow-x-auto py-2 xl:flex-col xl:gap-5 xl:overflow-visible xl:py-0">
         {NAV.map((g) => (
           <div key={g.group} className="flex shrink-0 gap-1 xl:flex-col xl:gap-0.5">
@@ -53,7 +53,7 @@ function SectionNav() {
                 aria-current={active === id ? 'location' : undefined}
                 className={clsx(
                   'relative inline-flex min-h-10 shrink-0 items-center rounded-[4px] px-3 text-sm transition-colors duration-150 xl:min-h-9',
-                  active === id ? 'bg-space-2 font-semibold text-ink' : 'text-text-2 hover:bg-space-2 hover:text-ink',
+                  active === id ? 'bg-space-2 font-bold text-ink shadow-[inset_3px_0_0_var(--white)]' : 'text-text-2 hover:bg-space-2 hover:text-ink',
                 )}
               >
                 {label}
@@ -81,10 +81,10 @@ function VitalsSection({ a }: { a: Astronaut }) {
   const overall = Math.round((scores.hr + scores.bp + scores.spo2 + scores.temp) / 4);
   const fault = s.sensorFault[a.id];
   const Chart = ({ title, score, children }: { title: string; score: number; children: React.ReactNode }) => (
-    <div className="well p-3">
+    <div className="border-t border-line pt-3">
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="label num" style={{ color: STATUS_META[scoreTone(score)].color }}>Score {score}/100</span>
+        <h3 className="font-semibold">{title}</h3>
+        <span className="num text-sm font-semibold" style={{ color: STATUS_META[scoreTone(score)].color }}>Score {score}/100</span>
       </div>
       {children}
     </div>
@@ -106,15 +106,15 @@ function VitalsSection({ a }: { a: Astronaut }) {
         </div>
       )}
       <div className="mb-3">
-        <Legend items={[{ label: 'Personal baseline band', color: 'var(--nominal)', area: true }, { label: 'Baseline', color: 'var(--text-3)', dashed: true }]} />
+        <Legend items={[{ label: 'Personal baseline band', color: 'var(--text-2)', area: true, faint: true }, { label: 'Baseline', color: 'var(--white)', dashed: true }]} />
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-x-8 gap-y-6 lg:grid-cols-2">
         <Chart title="Heart rate, bpm" score={scores.hr}>
           <VitalChart data={v} k="heartRate" name="Heart rate" unit="bpm" baseline={b.heartRate} tolerance={15} color="var(--chart-2)" />
         </Chart>
         <Chart title="Blood pressure, mmHg" score={scores.bp}>
           <BPChart data={v} baseline={b} />
-          <Legend items={[{ label: 'Systolic', color: 'var(--chart-1)' }, { label: 'Diastolic', color: 'var(--chart-3)' }]} />
+          <Legend items={[{ label: 'Systolic', color: 'var(--chart-1)' }, { label: 'Diastolic', color: 'var(--chart-3)', dashed: true }]} />
         </Chart>
         <Chart title="Blood oxygen, %" score={scores.spo2}>
           <VitalChart data={v} k="spo2" name="Blood oxygen" unit="%" baseline={b.spo2} tolerance={3} domain={[80, 100]} />
@@ -136,7 +136,7 @@ function SleepSection({ a }: { a: Astronaut }) {
   const win = suggestedWindow(nights);
   return (
     <Panel id="sleep" feature="Feature 1" title="Sleep" icon={<Moon className="size-5 text-nasa-bright" aria-hidden />} lead="Measured by the watch and confirmed in the daily check-in.">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-4">
             <Stat label="Last night" value={last.hours} unit="h" tone={last.hours < 6 ? 'watch' : 'nominal'} />
@@ -173,7 +173,7 @@ function MentalSection({ a }: { a: Astronaut }) {
   const tone = scoreTone(last.score);
   return (
     <Panel id="mental" feature="Feature 2" title="Mental health" icon={<Brain className="size-5 text-nasa-bright" aria-hidden />} lead="Five set questions a day, scored out of 100 and shared with mission command.">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div>
           <p className="mb-2 flex items-baseline gap-2">
             <span className="num display text-5xl" style={{ color: STATUS_META[tone].color }}>{last.score}</span>
@@ -221,7 +221,7 @@ function RadiationSection({ a }: { a: Astronaut }) {
   const earlier = !now && peak > SHELTER_RATE_USV_H;
   return (
     <Panel id="radiation" feature="Feature 14" title="Radiation exposure" icon={<Radiation className="size-5 text-nasa-bright" aria-hidden />}>
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2">
             <Stat label="Dose rate now" value={Math.round(rate)} unit="µSv/h" tone={now ? 'critical' : 'nominal'} />
@@ -255,39 +255,27 @@ function MedicationSection({ a }: { a: Astronaut }) {
   const log = s.medLog.filter((m) => m.astronautId === a.id);
   return (
     <Panel id="medication" feature="Features 7, 12" title="Medication" icon={<Pill className="size-5 text-nasa-bright" aria-hidden />}>
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-2">
         <div className="flex flex-col gap-6">
           <div>
             <h3 className="mb-2 text-sm font-semibold">What {firstName(a.name)} takes</h3>
-            <ul className="flex flex-col">
-              {meds.map((m) => (
-                <li key={m.name} className="border-b border-line py-3 first:pt-0 last:border-b-0">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <p className="font-semibold">{m.name} <span className="num label font-normal">{m.dose}, {m.route}</span></p>
-                    <span className="label">{m.schedule}</span>
-                  </div>
-                  <p className="text-sm text-text-3">{m.reason}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {m.today.length === 0 && <span className="text-sm text-watch">Not started. Waiting for mission command.</span>}
-                    {m.today.map((d, i) => {
-                      const missed = !d.taken && d.at < s.now;
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          disabled={d.taken}
-                          onClick={() => dispatch({ type: 'med-taken', id: a.id, med: m.name, index: i })}
-                          className={clsx('btn btn-sm border disabled:opacity-100', d.taken ? 'border-nominal/40 text-nominal' : missed ? 'border-critical/60 bg-critical/10 text-critical hover:bg-critical/20' : 'border-line-strong text-text-2 hover:bg-space-3')}
-                        >
-                          {d.taken ? <Check className="size-4" aria-hidden /> : missed ? <X className="size-4" aria-hidden /> : <Clock3 className="size-4" aria-hidden />}
-                          <span className="num">{fmtTime(d.at)}</span> {d.taken ? 'Taken' : missed ? 'Missed, log as taken' : 'Due, log as taken'}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="table min-w-[520px]">
+                <thead><tr><th>Medication</th><th>Dose</th><th>Schedule</th><th>Today</th></tr></thead>
+                <tbody>
+                  {meds.map((m) => (
+                    <tr key={m.name}>
+                      <td><span className="font-semibold">{m.name}</span><span className="label block">{m.reason}</span></td>
+                      <td className="num whitespace-nowrap text-text-2">{m.dose}<span className="label block">{m.route}</span></td>
+                      <td className="text-text-2">{m.schedule}</td>
+                      <td>
+                        <DoseStates a={a} med={m.name} today={m.today} log />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
           <div>
             <h3 className="mb-2 text-sm font-semibold">Watch responses</h3>
@@ -421,7 +409,7 @@ function PlanSection({ a }: { a: Astronaut }) {
         </button>
       }
     >
-      <div className="grid gap-6 xl:grid-cols-2" aria-busy={busy}>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-2" aria-busy={busy}>
         <div>
           <div className="border-l-2 border-agent pl-4">
             <p className="label">Underlying problem{s.rootCauses[a.id] ? ', found by Gemini' : ''}</p>
@@ -490,6 +478,35 @@ function DecisionLog({ a }: { a: Astronaut }) {
   );
 }
 
+/* ───────────── Dose states, shared by the header summary and the medication section ───────────── */
+
+function DoseStates({ a, med, today, log }: { a: Astronaut; med: string; today: { at: number; taken: boolean }[]; log?: boolean }) {
+  const { s, dispatch } = useMission();
+  if (today.length === 0) return <span className="flex items-center gap-1.5 text-sm text-watch"><Clock3 className="size-4 shrink-0" aria-hidden /> Not started, waiting for mission command</span>;
+  return (
+    <span className="flex flex-wrap gap-x-4 gap-y-1.5">
+      {today.map((d, i) => {
+        const missed = !d.taken && d.at < s.now;
+        const state = d.taken ? 'Taken' : missed ? 'Missed' : 'Due';
+        const I = d.taken ? Check : missed ? X : Clock3;
+        const cls = d.taken ? 'text-nominal' : missed ? 'text-critical' : 'text-text-2';
+        return (
+          <span key={i} className="flex items-center gap-2">
+            <span className={clsx('flex items-center gap-1.5 whitespace-nowrap text-sm font-semibold', cls)}>
+              <I className="size-4 shrink-0" aria-hidden strokeWidth={2.5} /> {state} <span className="num font-normal text-text-2">{fmtTime(d.at)}</span>
+            </span>
+            {log && !d.taken && (
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => dispatch({ type: 'med-taken', id: a.id, med, index: i })} aria-label={`Log ${med} ${fmtTime(d.at)} as taken`}>
+                Log as taken
+              </button>
+            )}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 /* ───────────── Page ───────────── */
 
 export function AstronautView({ id }: { id: string }) {
@@ -498,8 +515,8 @@ export function AstronautView({ id }: { id: string }) {
   if (!s.ready) {
     return (
       <div className="flex flex-col gap-4" aria-busy="true" aria-label="Loading health record">
-        <div className="skeleton h-[520px]" />
-        <div className="skeleton h-[320px]" />
+        <div className="skeleton h-[160px]" />
+        <div className="skeleton h-[420px]" />
       </div>
     );
   }
@@ -509,45 +526,79 @@ export function AstronautView({ id }: { id: string }) {
   const fault = s.sensorFault[id];
   const open = openEvents(s, id);
   const meds = s.meds[id];
+  const readings = liveReadings(s, a);
 
   return (
-    <div className="flex flex-col gap-4">
-      <Link href="/" className="btn btn-sm btn-quiet -ml-3 self-start">
-        <ArrowLeft className="size-4" aria-hidden /> Crew overview
-      </Link>
+    <div className="flex flex-col gap-6">
+      {/* The person, their status and why they need attention: the first thing read on this screen */}
+      <header className="flex flex-col gap-3">
+        <Link href="/" className="btn btn-sm btn-quiet -ml-3 self-start">
+          <ArrowLeft className="nudge-back size-4" aria-hidden /> Crew overview
+        </Link>
+        <div>
+          <p className="label flex items-center gap-2 text-text-2">
+            <span className="inline-block h-3 w-6 rounded-[2px]" style={{ background: a.suitColor }} aria-hidden /> {a.role}, age {a.age}
+          </p>
+          <h1 className="display reveal mt-1 text-[2.75rem] md:text-6xl"><span>{a.name}</span></h1>
+        </div>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-lg">
+          <StatusPill status={st.status} />
+          <span>{st.reason}</span>
+        </p>
+        <p className="max-w-[70ch] text-text-2">{a.scenario}</p>
+        {open.length > 0 && (
+          <Notice tone="critical" role="alert" icon={<OctagonAlert className="size-5 text-critical" aria-hidden />}>
+            <b>Active emergency: {CONDITIONS[open[0].condition].label}.</b> Respond in the banner at the top of the page.
+          </Notice>
+        )}
+      </header>
 
-      <section className="panel grid overflow-hidden bg-black lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]" aria-label={`${a.name}, summary`}>
-        <Stage a={a} interactive className="sm:h-[480px]" />
-        <div className="flex flex-col gap-4 border-t border-line bg-space-1 p-5 md:p-6 lg:border-l lg:border-t-0">
-          <div>
-            <p className="label">{a.role}, age {a.age}</p>
-            <h1 className="display mt-1 text-4xl md:text-5xl">{a.name}</h1>
-            <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-              <StatusPill status={st.status} />
-              <span className="text-sm" style={{ color: st.status === 'nominal' ? 'var(--text-2)' : STATUS_META[st.status].color }}>{st.reason}</span>
-            </p>
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)]">
+        <section className="panel p-5 md:p-6" aria-label="Right now">
+          <h2 className="title mb-3 text-lg">Right now</h2>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-4 sm:grid-cols-4" role="group" aria-label="Live readings">
+            {readings.map((r) => <div key={r.label}><ReadingValue r={r} rollKey={a.id} /></div>)}
           </div>
-          {open.length > 0 && (
-            <Notice tone="critical" role="alert" icon={<OctagonAlert className="size-4" aria-hidden />}>
-              Active emergency: {CONDITIONS[open[0].condition].label}. Respond in the banner at the top of the page.
-            </Notice>
-          )}
-          <p className="text-sm text-text-2">{a.scenario}</p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
             <Stat label="Radiation" value={Math.round(last.radiationRate)} unit="µSv/h" tone={last.radiationRate > SHELTER_RATE_USV_H ? 'critical' : 'nominal'} />
             <Stat label="Watch" value={fault ? 'Loose' : 'On wrist'} sub={`Updated ${ago(last.t, s.now)}`} tone={fault ? 'watch' : 'nominal'} />
             <Stat label="Days in space" value={a.daysInSpace} />
             <Stat label="Check-in today" value={s.checkins[id].completed ? 'Done' : 'Not yet'} tone={s.checkins[id].completed ? 'nominal' : 'watch'} />
           </div>
-          <div className="rule mt-auto pt-4">
-            <p className="label mb-1">Medication today</p>
-            <p className="text-sm">{meds.length ? meds.map((m) => `${m.name} ${m.dose}`).join(', ') : 'None'}</p>
-          </div>
-          <p className="label">Drag the suit to turn it. The chest light beats at the live heart rate.</p>
-        </div>
-      </section>
 
-      <div className="grid gap-4 xl:grid-cols-[200px_minmax(0,1fr)] xl:gap-6">
+          <h2 className="title mb-2 mt-8 flex flex-wrap items-baseline justify-between gap-2 text-lg">
+            Medication today
+            <a href="#medication" className="link text-sm font-normal">Log, stock and dose limits</a>
+          </h2>
+          {meds.length === 0 ? (
+            <p className="text-text-2">No medication scheduled today.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="table min-w-[480px]">
+                <thead><tr><th>Medication</th><th>Dose</th><th>Schedule</th><th>Today</th></tr></thead>
+                <tbody>
+                  {meds.map((m) => (
+                    <tr key={m.name}>
+                      <td className="font-semibold">{m.name}</td>
+                      <td className="num whitespace-nowrap text-text-2">{m.dose}</td>
+                      <td className="text-text-2">{m.schedule}</td>
+                      <td><DoseStates a={a} med={m.name} today={m.today} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* The suit supports here; it leads on the overview */}
+        <section className="panel overflow-hidden" aria-label={`${a.name}, suit view`}>
+          <Stage a={a} interactive readouts={false} onRecord className="h-[300px] lg:h-[360px]" />
+          <p className="label border-t border-line px-5 py-3 md:px-6">Drag to turn the suit. Zones glow where there is a problem, and the heart beats at the live rate.</p>
+        </section>
+      </div>
+
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[200px_minmax(0,1fr)] xl:gap-6">
         <SectionNav />
         <div className="flex min-w-0 flex-col gap-4">
           <VitalsSection a={a} />

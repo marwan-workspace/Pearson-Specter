@@ -5,7 +5,7 @@ import { HandHeart, OctagonAlert, Radiation, Syringe, Wind } from 'lucide-react'
 import { openEvents, useMission } from '@/lib/mission';
 import { useNow } from '@/lib/hooks';
 import { CREW, SHELTER_RATE_USV_H, byId } from '@/lib/crew';
-import { CONDITIONS, TIER_LABEL } from '@/lib/conditions';
+import { CANCEL_WINDOW_MS, CONDITIONS, TIER_LABEL } from '@/lib/conditions';
 import { firstName } from './ui';
 
 /**
@@ -26,7 +26,7 @@ export function GlobalAlerts() {
   return (
     <div className="mx-auto mt-3 flex max-w-[1680px] flex-col gap-2 px-4 md:px-8" aria-live="assertive">
       {shelter.map((c) => (
-        <div key={`sh-${c.id}`} role="alert" className="alert-in pulse-critical flex flex-wrap items-center gap-3 rounded-[6px] border border-critical/70 bg-[oklch(0.22_0.08_30)] px-4 py-3">
+        <div key={`sh-${c.id}`} role="alert" className="alert-in pulse-critical flex flex-wrap items-center gap-3 rounded-[6px] border-2 border-critical bg-critical-surface px-4 py-3">
           <Radiation className="size-6 shrink-0 text-critical" aria-hidden />
           <p className="flex-1 font-semibold">
             Take shelter now: {c.name}. Dose rate <span className="num">{Math.round(s.vitals[c.id].slice(-1)[0].radiationRate)} µSv/h</span>, limit <span className="num">{SHELTER_RATE_USV_H}</span>.
@@ -38,11 +38,11 @@ export function GlobalAlerts() {
         const spec = CONDITIONS[e.condition];
         const remaining = e.cancelDeadline ? Math.max(0, Math.ceil((e.cancelDeadline - now) / 1000)) : 0;
         return (
-          <div key={e.id} role="alert" className="alert-in pulse-critical flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[6px] border border-critical/70 bg-[oklch(0.22_0.08_30)] px-4 py-3">
+          <div key={e.id} role="alert" className="alert-in pulse-critical flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[6px] border-2 border-critical bg-critical-surface px-4 py-3">
             <OctagonAlert className="size-6 shrink-0 text-critical" aria-hidden />
             <div className="min-w-0 flex-1 basis-72">
               <p className="font-bold">
-                <Link href={`/astronaut/${a.id}`} className="underline decoration-white/40 underline-offset-4 hover:decoration-white">{a.name}</Link>: {spec.label}
+                <Link href={`/astronaut/${a.id}`} className="underline decoration-ink/50 underline-offset-4 hover:decoration-ink">{a.name}</Link>: {spec.label}
                 <span className="label ml-2 text-text-2">{TIER_LABEL[spec.tier]}</span>
               </p>
               <p className="text-sm text-text-2">
@@ -52,10 +52,15 @@ export function GlobalAlerts() {
                 {e.state === 'crewmate-alerted' && <>A crewmate must give <b className="text-ink">{spec.medication}</b>. The watch cannot inject this.</>}
               </p>
               <p className="label num mt-0.5">Rule {e.rule?.split(' · ')[0]}</p>
+              {e.state === 'countdown' && e.cancelDeadline && (
+                <div className="mt-2 h-1.5 max-w-md overflow-hidden rounded-full bg-space-0" aria-hidden>
+                  <div className="drain h-full w-full rounded-full bg-critical" style={{ transform: `scaleX(${Math.max(0, Math.min(1, (e.cancelDeadline - now) / CANCEL_WINDOW_MS))})` }} />
+                </div>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {e.state === 'countdown' && (
-                <button className="btn bg-white text-black hover:bg-white/85" onClick={() => dispatch({ type: 'cancel', eventId: e.id })}>Cancel injection <span className="num">({remaining} s)</span></button>
+                <button className="btn bg-ink text-space-0 hover:bg-white" onClick={() => dispatch({ type: 'cancel', eventId: e.id })}>Cancel injection <span className="num">({remaining} s)</span></button>
               )}
               {e.state === 'awaiting-confirm' && (
                 <>
@@ -65,7 +70,7 @@ export function GlobalAlerts() {
               )}
               {e.state === 'crewmate-alerted' &&
                 CREW.filter((c) => c.id !== e.astronautId).slice(0, 3).map((c) => (
-                  <button key={c.id} className="btn btn-ghost border-white/40" onClick={() => dispatch({ type: 'crewmate-gave', eventId: e.id, by: c.name })}>
+                  <button key={c.id} className="btn btn-ghost border-ink/70" onClick={() => dispatch({ type: 'crewmate-gave', eventId: e.id, by: c.name })}>
                     <HandHeart className="size-4" aria-hidden /> Given by {firstName(c.name)}
                   </button>
                 ))}

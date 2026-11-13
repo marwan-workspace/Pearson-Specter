@@ -34,7 +34,7 @@ export function GravityDropTest({ a }: { a: Astronaut }) {
 
   return (
     <Panel id="gravity" feature="Feature 21" title="Bone strength if they landed today" icon={<Bone className="size-5 text-nasa-bright" aria-hidden />} lead="The gravity drop test: bone is lost in microgravity, so the same landing gets riskier the longer the mission runs.">
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2">
             <Landing where="Mars" g={0.38} risk={e.mars.risk} index={e.mars.index} icon={<Orbit className="size-4 text-text-3" aria-hidden />} />
@@ -57,12 +57,12 @@ export function GravityDropTest({ a }: { a: Astronaut }) {
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={series} margin={{ top: 8, right: 16, bottom: 0, left: -4 }}>
               <CartesianGrid vertical={false} />
-              <ReferenceLine y={osteopenia} stroke="var(--watch)" strokeDasharray="4 4" label={{ value: 'osteopenia (T −1)', fill: 'var(--watch)', fontSize: 10, position: 'insideTopRight' }} />
-              <ReferenceLine y={osteoporosis} stroke="var(--critical)" strokeDasharray="4 4" label={{ value: 'osteoporosis (T −2.5)', fill: 'var(--critical)', fontSize: 10, position: 'insideTopRight' }} />
-              <ReferenceLine x={a.daysInSpace} stroke="var(--line-strong)" label={{ value: 'today', fill: 'var(--text-2)', fontSize: 10, position: 'insideTopLeft' }} />
+              <ReferenceLine y={osteopenia} stroke="var(--watch)" strokeDasharray="4 4" label={{ value: 'osteopenia (T −1)', fill: 'var(--watch)', fontSize: 12, position: 'insideTopRight' }} />
+              <ReferenceLine y={osteoporosis} stroke="var(--critical)" strokeDasharray="4 4" label={{ value: 'osteoporosis (T −2.5)', fill: 'var(--critical)', fontSize: 12, position: 'insideTopRight' }} />
+              <ReferenceLine x={a.daysInSpace} stroke="var(--line-strong)" label={{ value: 'today', fill: 'var(--text-2)', fontSize: 12, position: 'insideTopLeft' }} />
               <XAxis dataKey="d" type="number" domain={[0, 540]} ticks={[0, 90, 180, 270, 360, 450, 540]} tickFormatter={(d) => `${d} d`} tickLine={false} />
               <YAxis domain={[Math.floor(osteoporosis * 20) / 20, Math.ceil(e.pre * 20) / 20 + 0.05]} tickLine={false} axisLine={false} width={52} tickFormatter={(v: number) => v.toFixed(2)} />
-              <Tooltip content={({ active, payload }) => (active && payload?.length ? <div className="rounded-[4px] border border-line-strong bg-space-2 px-3 py-2 text-xs">Day {payload[0].payload.d}: <b className="num">{payload[0].payload.bmd} g/cm²</b></div> : null)} />
+              <Tooltip content={({ active, payload }) => (active && payload?.length ? <div className="rounded-[4px] border border-line-strong bg-space-0 px-3 py-2 text-sm">Day {payload[0].payload.d}: <b className="num">{payload[0].payload.bmd} g/cm²</b></div> : null)} />
               <Line dataKey="bmd" stroke="var(--chart-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
               <ReferenceDot x={a.daysInSpace} y={Number(e.now.toFixed(3))} r={5} fill="var(--white)" stroke="var(--chart-1)" strokeWidth={2} />
             </LineChart>

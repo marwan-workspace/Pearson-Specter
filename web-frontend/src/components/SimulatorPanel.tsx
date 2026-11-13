@@ -1,11 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { RotateCcw, Watch, X, Zap } from 'lucide-react';
+import { Presentation, RotateCcw, Watch, X, Zap } from 'lucide-react';
 import { resetDemo, useMission } from '@/lib/mission';
 import { CREW } from '@/lib/crew';
 import { CONDITIONS, TIER_LABEL } from '@/lib/conditions';
 import type { ConditionId } from '@/lib/types';
+
+/** A different emergency for each crew member, so each suit lights a different zone red. */
+const SHOWCASE: { id: string; condition: ConditionId; zone: string }[] = [
+  { id: 'elena', condition: 'tachycardia', zone: 'heart' },
+  { id: 'kwame', condition: 'fever', zone: 'head' },
+  { id: 'hiro', condition: 'high-bp', zone: 'blood pressure' },
+  { id: 'maya', condition: 'radiation-sickness', zone: 'radiation' },
+];
 
 /** Feature 10: replays a watch stream and injects an emergency on cue. */
 export function SimulatorPanel({ onClose }: { onClose: () => void }) {
@@ -14,6 +22,7 @@ export function SimulatorPanel({ onClose }: { onClose: () => void }) {
   const [cond, setCond] = useState<ConditionId>('bradycardia');
   const [confirmReset, setConfirmReset] = useState(false);
   const running = !!s.emergencies[id];
+  const anyRunning = CREW.some((c) => s.emergencies[c.id]);
   return (
     <div role="dialog" aria-label="Vitals simulator">
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -24,6 +33,16 @@ export function SimulatorPanel({ onClose }: { onClose: () => void }) {
         <button className="btn btn-sm btn-quiet px-2" onClick={onClose} aria-label="Close simulator" autoFocus><X className="size-4" aria-hidden /></button>
       </div>
       <div className="grid gap-3">
+        <div className="well p-3">
+          <p className="text-sm font-semibold">Showcase</p>
+          <p className="mb-2 text-sm text-text-2">Gives every crew member a different emergency at once: {SHOWCASE.map((x) => `${CREW.find((c) => c.id === x.id)!.name.split(' ')[0]}, ${x.zone}`).join('; ')}.</p>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn btn-primary flex-1" onClick={() => SHOWCASE.forEach((x) => dispatch({ type: 'inject', id: x.id, condition: x.condition }))}>
+              <Presentation className="size-4" aria-hidden /> Start showcase
+            </button>
+            <button className="btn btn-ghost" onClick={() => CREW.forEach((c) => dispatch({ type: 'clear', id: c.id }))} disabled={!anyRunning}>Clear all</button>
+          </div>
+        </div>
         <label className="label grid gap-1">
           Crew member
           <select className="field" value={id} onChange={(e) => setId(e.target.value)}>
@@ -49,7 +68,7 @@ export function SimulatorPanel({ onClose }: { onClose: () => void }) {
               <p className="text-sm text-text-2">Erase saved events, logs and chats?</p>
               <div className="flex gap-2">
                 <button className="btn btn-sm btn-quiet" onClick={() => setConfirmReset(false)}>Keep</button>
-                <button className="btn btn-sm btn-ghost border-critical/60 text-critical" onClick={resetDemo}>Reset</button>
+                <button className="btn btn-sm btn-ghost border-critical text-critical" onClick={resetDemo}>Reset</button>
               </div>
             </>
           ) : (

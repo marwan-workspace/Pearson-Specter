@@ -57,6 +57,7 @@ export function sampleAt(a: Astronaut, t: number, r: () => number): VitalSample 
     radiationRate: 18 + n(r, 3), // ~0.43 mSv/day cruise background, µSv/h
   };
   // Scenario flavour.
+  if (a.id === 'elena') s = { ...s, spo2: s.spo2 - 6 }; // blood oxygen running low, above the alarm line
   if (a.id === 'hiro') s = { ...s, systolic: s.systolic + 16, diastolic: s.diastolic + 9 }; // drifting hypertension
   if (a.id === 'kwame') s = { ...s, heartRate: s.heartRate + 8 }; // elevated resting HR from stress
   if (a.id === 'maya') {

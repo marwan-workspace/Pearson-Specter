@@ -566,5 +566,6 @@ export function astronautStatus(s: MissionState, id: string): { status: Status; 
   if (mh < 60) return { status: 'watch', reason: `Mental-health score ${mh}/100` };
   if (last && last.systolic - c.baseline.systolic > 12 && last.activity < 0.5) return { status: 'watch', reason: 'BP above personal baseline' };
   if (sleep < 6) return { status: 'watch', reason: `Short sleep (${sleep} h)` };
+  if (last && last.spo2 < 93) return { status: 'watch', reason: 'Blood oxygen below personal baseline' };
   return { status: 'nominal', reason: 'All features within personal baseline' };
 }

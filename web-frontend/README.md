@@ -57,7 +57,8 @@ When the backend is not ready, or a call fails, every one of these falls back to
 
 ## Demo script
 
-1. **Overview**: Elena is nominal; Kwame (sleep and mental health), Hiro (blood pressure) and Maya (radiation) are on Watch. Select a row to put that crew member on the stage.
+1. **Overview**: every crew member shows a different amber zone on the suit: Elena (lungs, low blood oxygen), Kwame (head, mental health), Hiro (blood pressure) and Maya (radiation). Select a row to put that crew member on the stage.
+   - **Simulator → Start showcase** gives all four a different emergency at once, so each suit lights a different zone red: Elena heart, Kwame head (fever), Hiro blood pressure, Maya radiation. **Clear all** ends it.
 2. **Open Kwame's record**: charts, medication, sleep, mental-health score, check-in, root cause and plan.
 3. **Simulator (header)**: inject an emergency.
    - *Bradycardia* → tier 1: the watch injects atropine after a 15 s **cancel window**. Stock and the medication log update.
@@ -123,7 +124,7 @@ src/
 
 ## Design notes
 
-- **Colour**: NASA blue `#0B3D91`, NASA red `#FC3D21` and white on black. Red is reserved for "act now". Status is always an icon and a word as well as a colour.
+- **Colour**: deep orbital navy (`#091426` page, `#12233B` raised) taken from the VitaCuff walkthrough, warm white ink, cool silver secondary text, NASA blue `#0B3D91` for actions. Mint, amber and coral mean health status only, always with a word and its own symbol; crew identity colours (suit stripes, roster rings) are separate. Text is measured at 4.5:1 or better, essential readings at 7:1 or better.
 - **Type**: one family, Archivo Variable, self-hosted. Its width axis carries the hierarchy: expanded for names and headlines, normal for reading, condensed for labels and units.
 - **Motion**: transform and opacity only. With reduced motion on, the suit holds a still pose and interface movement is removed.
 - **Performance**: one WebGL canvas per page, loaded after first paint, paused when off screen or the tab is hidden.
@@ -132,3 +133,9 @@ src/
 > **Placeholders:** the NHANES femur baseline and the bone-loss rate in feature 21, and the family recordings in feature 22, are placeholders because they are still open questions in FEATURES.md.
 >
 > **Medical warning (from FEATURES.md):** the condition → medication table has not been checked against NASA's medical kit or clinical guidelines and contains no doses. All crew members and data are fictional or simulated.
+
+## Interaction
+
+- **Body zones on the suit**: heart, lungs, head, blood pressure and radiation glow on the 3D suit. A zone with a problem turns amber or red and throws its colour onto the suit; the heart beats at the live heart rate. Point at a zone or click it, or use the matching **body check** buttons under the suit (the same information, for keyboard and for browsers without WebGL). With nothing picked, the view follows the zone in most trouble. Logic lives in `src/lib/zones.ts`.
+- **The suit leans toward the pointer** on the overview, and can be dragged on the record page.
+- **Interface motion**: names rise into place, readings count up once when a crew member is chosen (live updates stay steady), the ship-location highlight slides, arrows lean on hover, a roster row flashes when its status changes, the cancel window drains as a bar, and record sections rise in as you scroll. All of it is switched off or reduced under reduced motion.

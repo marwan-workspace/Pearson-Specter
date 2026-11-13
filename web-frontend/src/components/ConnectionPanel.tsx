@@ -58,7 +58,7 @@ export function ConnectionPanel({ onClose }: { onClose: () => void }) {
       )}
 
       {b.lastError && (
-        <p className="mb-3 rounded-[4px] border border-watch/45 bg-watch/10 px-3 py-2 text-sm text-watch" role="alert">
+        <p className="mb-3 rounded-[4px] border border-watch px-3 py-2 text-sm text-watch" role="alert">
           Last call failed: {b.lastError} The simulation answered instead.
         </p>
       )}

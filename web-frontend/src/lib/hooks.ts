@@ -105,3 +105,27 @@ export function useActiveSection(ids: readonly string[]): string {
   }, [ids]);
   return active;
 }
+
+/** Adds the class `in` the first time the element scrolls into view (see `.on-scroll` in globals.css). */
+export function useReveal<T extends Element>() {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      el.classList.add('in');
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        el.classList.add('in');
+        io.disconnect();
+      },
+      { rootMargin: '0px 0px -8% 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return ref;
+}

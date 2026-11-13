@@ -23,13 +23,14 @@ export function MarsDelayBar() {
       <div className="mx-auto flex max-w-[1680px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 md:px-8">
         <fieldset className="flex items-center gap-3">
           <legend className="label float-left mr-3 leading-9">Ship location</legend>
-          <div className="flex rounded-[4px] bg-space-1 p-0.5">
+          <div className="relative flex rounded-[4px] bg-space-1 p-0.5">
+            <span aria-hidden className="switch-hl absolute left-0.5 top-0.5 h-8 w-16 rounded-[3px] bg-nasa-blue" style={{ transform: `translate3d(${STOPS.indexOf(s.location) * 100}%, 0, 0)` }} />
             {STOPS.map((k) => (
               <label
                 key={k}
                 className={clsx(
-                  'flex h-8 min-w-14 items-center justify-center rounded-[3px] px-3 text-sm font-semibold transition-colors duration-150 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-nasa-bright',
-                  k === s.location ? 'bg-nasa-blue text-white' : 'text-text-3 hover:text-ink',
+                  'relative flex h-8 w-16 items-center justify-center rounded-[3px] text-sm font-semibold transition-colors duration-200 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-nasa-bright',
+                  k === s.location ? 'text-ink' : 'text-text-2 hover:text-ink',
                 )}
               >
                 <input type="radio" name="ship-location" className="sr-only" checked={k === s.location} onChange={() => dispatch({ type: 'location', location: k })} />

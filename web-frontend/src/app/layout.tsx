@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   description: 'Astronaut health monitoring for deep-space missions: live vitals, sleep, mental health, medication and an onboard medical agent.',
 };
 
-export const viewport: Viewport = { themeColor: '#000000', colorScheme: 'dark' };
+export const viewport: Viewport = { themeColor: '#091426', colorScheme: 'dark' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // Start downloading the 3.4 MB suit model with the HTML, instead of after three.js has loaded and parsed.
