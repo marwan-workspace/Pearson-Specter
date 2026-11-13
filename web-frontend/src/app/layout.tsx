@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { preload } from 'react-dom';
 import './globals.css';
 import { MissionProvider } from '@/lib/mission';
 import { BackendProvider } from '@/lib/backend';
@@ -15,6 +16,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: '#000000', colorScheme: 'dark' };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Start downloading the 3.4 MB suit model with the HTML, instead of after three.js has loaded and parsed.
+  // The Draco decoder unpacks it; fetch both alongside rather than after the model arrives.
+  for (const href of ['/models/emu.glb', '/draco/draco_wasm_wrapper.js', '/draco/draco_decoder.wasm']) preload(href, { as: 'fetch', crossOrigin: 'anonymous' });
   return (
     <html lang="en">
       <body>
