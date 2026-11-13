@@ -1,0 +1,28 @@
+{
+  "_note": "Medication choices are unverified and carry no doses. Medical review required. Conditions are listed most severe first; that order is used when the LLM is unavailable. The dashboard (web-frontend/src/lib/conditions.ts) reads this file too; names map to its ids with _ replaced by -.",
+  "thresholds": { "hr_low": 40, "spo2_low": 90, "bp_sys_shock": 70, "bp_sys_low": 90, "bp_sys_high": 180, "temp_high": 38.2 },
+  "lockout_minutes": 30,
+  "tiers": { "1": "auto_inject", "2": "ask_confirm", "3": "alert_crewmate" },
+  "conditions": [
+    { "name": "shock", "flag": "bp_shock", "tier": 1,
+      "first_response": "Lie down, alert crew", "medication": "epinephrine" },
+    { "name": "bradycardia", "flag": "hr_low", "tier": 1,
+      "first_response": "Alert crew", "medication": "atropine; epinephrine if atropine fails" },
+    { "name": "radiation_sickness", "flag": "radiation_high", "tier": 3,
+      "first_response": "Move to shielded area", "medication": "ondansetron; filgrastim" },
+    { "name": "low_oxygen", "flag": "spo2_low", "tier": 3,
+      "first_response": "Check cabin air and breathing", "medication": "supplemental oxygen" },
+    { "name": "panic_attack", "flag": "hr_high", "states": ["stress"], "tier": 2,
+      "first_response": "Guided breathing on the watch", "medication": "lorazepam or midazolam" },
+    { "name": "tachycardia", "flag": "hr_high", "states": ["rest"], "tier": 3,
+      "first_response": "Breathing / vagal manoeuvres", "medication": "adenosine; metoprolol" },
+    { "name": "low_bp", "flag": "bp_low", "tier": 3,
+      "first_response": "Lie down, fluids", "medication": "midodrine (oral)" },
+    { "name": "high_bp", "flag": "bp_high", "tier": 3,
+      "first_response": "Rest, recheck", "medication": "labetalol or nicardipine (IV); captopril (oral)" },
+    { "name": "fever", "flag": "temp_high", "tier": 3,
+      "first_response": "Rest, fluids, recheck", "medication": "acetaminophen (oral)" },
+    { "name": "sensor_fault", "flag": "sensor_fault", "tier": 3,
+      "first_response": "Check the watch is worn and working", "medication": "" }
+  ]
+}

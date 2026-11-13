@@ -1,4 +1,4 @@
 .env
 .venv
-.gitattributes
 raw.zip
+__pycache__/

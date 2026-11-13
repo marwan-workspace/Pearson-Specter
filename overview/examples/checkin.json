@@ -1,0 +1,9 @@
+{
+  "astronautId": "hiro",
+  "date": "2026-11-13",
+  "missedYesterday": false,
+  "messages": [
+    { "from": "agent", "text": "Morning, Hiro. How many hours did you sleep last night?" },
+    { "from": "astronaut", "text": "About six. I'd call it a 3 out of 5. Woke up with a headache and a bit dizzy." }
+  ]
+}
