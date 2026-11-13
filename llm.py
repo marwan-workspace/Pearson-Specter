@@ -11,14 +11,25 @@ for _line in _env.read_text().splitlines() if _env.exists() else []:
 
 
 def ask(prompt, schema, timeout_s=30):
-    """Send a prompt, get back JSON text that follows `schema`."""
+    """Send a prompt, get back JSON text that follows `schema`.
+
+    If the main model is out of quota (HTTP 429), retry once with GEMINI_FALLBACK_MODEL when it is set.
+    """
     from google import genai  # reads GEMINI_API_KEY from the environment
 
+    models = [os.environ.get("GEMINI_MODEL", "gemini-4-hydrogen"), os.environ.get("GEMINI_FALLBACK_MODEL")]
+    models = [m for m in models if m]
     # keep a reference: a temporary client is closed before the request is sent
     client = genai.Client(http_options={"timeout": timeout_s * 1000})
-    reply = client.interactions.create(
-        model=os.environ.get("GEMINI_MODEL", "gemini-4-hydrogen"),
-        input=prompt,
-        response_format={"type": "text", "mime_type": "application/json", "schema": schema},
-    )
-    return reply.output_text
+    for i, model in enumerate(models):
+        try:
+            reply = client.interactions.create(
+                model=model,
+                input=prompt,
+                response_format={"type": "text", "mime_type": "application/json", "schema": schema},
+            )
+            return reply.output_text
+        except Exception as e:
+            # only a quota error is worth another model; anything else would fail there too
+            if getattr(e, "code", None) != 429 or i == len(models) - 1:
+                raise

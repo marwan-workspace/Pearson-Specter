@@ -1,64 +1,94 @@
 'use client';
 
 import { useState } from 'react';
-import { Droplet, Plus } from 'lucide-react';
+import { ArrowDown, ArrowUp, Droplet, Plus, X } from 'lucide-react';
 import { useMission } from '@/lib/mission';
 import { BLOOD_MARKERS } from '@/lib/crew';
 import type { Astronaut } from '@/lib/types';
 import { Panel } from './ui';
 
-/** Feature 15 — periodic lab results entered on the dashboard. */
+/** Feature 15: periodic lab results entered on the dashboard. */
 export function BloodTests({ a }: { a: Astronaut }) {
   const { s, dispatch } = useMission();
   const tests = s.blood[a.id];
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
-  const valid = BLOOD_MARKERS.every((m) => form[m.key] !== undefined && form[m.key] !== '' && !Number.isNaN(Number(form[m.key])));
+  const [tried, setTried] = useState(false);
+  const bad = (key: string) => form[key] === undefined || form[key].trim() === '' || Number.isNaN(Number(form[key]));
+  const valid = BLOOD_MARKERS.every((m) => !bad(m.key));
   return (
-    <Panel id="blood" feature="Feature 15 · Blood test entry (lab draws)" title="Blood tests" icon={<Droplet className="size-5 text-nasa-red" aria-hidden />}
-      right={<button className="btn btn-ghost" onClick={() => setOpen((o) => !o)} aria-expanded={open}><Plus className="size-4" aria-hidden /> Enter results</button>}>
+    <Panel
+      id="blood"
+      feature="Feature 15"
+      title="Blood tests"
+      icon={<Droplet className="size-5 text-nasa-bright" aria-hidden />}
+      right={
+        <button className="btn btn-sm btn-ghost" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls="blood-form">
+          {open ? <X className="size-4" aria-hidden /> : <Plus className="size-4" aria-hidden />} {open ? 'Close' : 'Enter results'}
+        </button>
+      }
+    >
       {open && (
         <form
-          className="mb-4 grid gap-2 rounded-xl border border-line bg-space-0/40 p-3 sm:grid-cols-2 lg:grid-cols-4"
+          id="blood-form"
+          noValidate
+          className="fade-in well mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-4"
           onSubmit={(e) => {
             e.preventDefault();
+            setTried(true);
             if (!valid) return;
             dispatch({ type: 'blood', id: a.id, values: Object.fromEntries(BLOOD_MARKERS.map((m) => [m.key, Number(form[m.key])])) });
             setForm({});
+            setTried(false);
             setOpen(false);
           }}
         >
-          {BLOOD_MARKERS.map((m) => (
-            <label key={m.key} className="text-xs text-text-2">
-              {m.label} <span className="text-text-3">({m.unit})</span>
-              <input inputMode="decimal" value={form[m.key] ?? ''} onChange={(e) => setForm((f) => ({ ...f, [m.key]: e.target.value }))} className="num mt-1 h-11 w-full rounded-lg border border-line-strong bg-space-2 px-3 text-sm" placeholder={`${m.range[0]}–${m.range[1]}`} />
-            </label>
-          ))}
-          <div className="flex items-end sm:col-span-2 lg:col-span-4">
-            <button className="btn btn-primary" disabled={!valid}>Save lab results</button>
+          {BLOOD_MARKERS.map((m) => {
+            const err = tried && bad(m.key);
+            return (
+              <label key={m.key} className="label grid gap-1">
+                <span>{m.label}, {m.unit}</span>
+                <input
+                  inputMode="decimal"
+                  value={form[m.key] ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, [m.key]: e.target.value }))}
+                  className={`field num ${err ? 'border-critical' : ''}`}
+                  aria-invalid={err || undefined}
+                  aria-describedby={`${m.key}-hint`}
+                />
+                <span id={`${m.key}-hint`} className={err ? 'text-critical' : undefined}>{err ? 'Enter a number.' : `Normal range ${m.range[0]} to ${m.range[1]}`}</span>
+              </label>
+            );
+          })}
+          <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-4">
+            <button className="btn btn-primary">Save lab results</button>
+            {tried && !valid && <p className="text-sm text-critical" role="alert">Fill in every marker with a number to save.</p>}
           </div>
         </form>
       )}
-      <div className="overflow-x-auto rounded-xl border border-line">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead className="bg-space-2 text-left text-[11px] uppercase tracking-wider text-text-3">
+      <div className="overflow-x-auto">
+        <table className="table min-w-[640px]">
+          <thead>
             <tr>
-              <th className="px-3 py-2">Marker</th>
-              <th className="px-3 py-2">Range</th>
-              {tests.map((t) => <th key={t.id} className="num px-3 py-2">{t.date}</th>)}
+              <th>Marker</th>
+              <th>Normal range</th>
+              {tests.map((t) => <th key={t.id} className="num">{t.date}</th>)}
             </tr>
           </thead>
           <tbody>
             {BLOOD_MARKERS.map((m) => (
-              <tr key={m.key} className="border-t border-line">
-                <td className="px-3 py-1.5 font-medium">{m.label} <span className="text-xs text-text-3">{m.unit}</span></td>
-                <td className="num px-3 py-1.5 text-text-3">{m.range[0]}–{m.range[1]}</td>
+              <tr key={m.key}>
+                <td className="font-medium">{m.label} <span className="label">{m.unit}</span></td>
+                <td className="num text-text-3">{m.range[0]} to {m.range[1]}</td>
                 {tests.map((t) => {
                   const v = t.values[m.key];
-                  const out = v < m.range[0] || v > m.range[1];
+                  const low = v < m.range[0];
+                  const high = v > m.range[1];
                   return (
-                    <td key={t.id} className={`num px-3 py-1.5 ${out ? 'font-bold text-watch' : ''}`}>
-                      {v}{out ? (v < m.range[0] ? ' ▼' : ' ▲') : ''}
+                    <td key={t.id} className={`num ${low || high ? 'font-bold text-watch' : ''}`}>
+                      {v}
+                      {low && <ArrowDown className="ml-1 inline size-3.5" aria-label="below range" />}
+                      {high && <ArrowUp className="ml-1 inline size-3.5" aria-label="above range" />}
                     </td>
                   );
                 })}

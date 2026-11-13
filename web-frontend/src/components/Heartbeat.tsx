@@ -56,25 +56,25 @@ export function HeartbeatPlayer() {
   useEffect(() => setPaused(false), [hb?.at]);
   if (!hb || !a || !member) return null;
   return (
-    <aside role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 w-[min(380px,calc(100vw-2rem))] panel border-nasa-red/60 p-4 shadow-2xl">
+    <aside role="status" aria-live="polite" className="pop-in panel fixed bottom-4 right-4 z-50 w-[min(380px,calc(100vw-2rem))] border-line-strong p-4 shadow-[0_24px_64px_rgba(0,0,0,0.7)]" style={{ ['--origin' as string]: 'bottom right' }}>
       <div className="flex items-start gap-3">
-        <Heart className="size-10 shrink-0 fill-nasa-red text-nasa-red" style={{ animation: paused ? undefined : `hb ${60 / member.bpm}s ease-in-out infinite` }} aria-hidden />
+        <Heart className="size-10 shrink-0 fill-ink text-ink" style={{ animation: paused ? undefined : `hb ${60 / member.bpm}s ease-in-out infinite` }} aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="eyebrow">Feature 22 · Heartbeat in a bottle</p>
-          <p className="font-semibold">For {a.name.split(' ')[0]}: {member.name}’s heartbeat</p>
-          <p className="text-xs text-text-2">Recorded by {a.name.split(' ')[0]}’s {member.relation} before launch · <span className="num">{member.bpm} bpm</span></p>
-          <p className="mt-1 text-xs text-text-3">Triggered by stress spike: {hb.reason}</p>
+          <p className="label">Heartbeat from home</p>
+          <p className="title">For {a.name.split(' ')[0]}: {member.name}’s heartbeat</p>
+          <p className="text-sm text-text-2">Recorded by {a.name.split(' ')[0]}’s {member.relation} before launch, <span className="num">{member.bpm} bpm</span></p>
+          <p className="label mt-1">Started because: {hb.reason}</p>
         </div>
-        <button className="btn btn-ghost min-h-10 px-2" aria-label="Stop heartbeat" onClick={() => dispatch({ type: 'heartbeat-stop' })}><X className="size-4" /></button>
+        <button className="btn btn-sm btn-quiet px-2" aria-label="Stop heartbeat" onClick={() => dispatch({ type: 'heartbeat-stop' })}><X className="size-4" aria-hidden /></button>
       </div>
       <div className="mt-3 flex gap-2">
         {blocked ? (
-          <button className="btn btn-red flex-1" onClick={() => void resume()}><Play className="size-4" aria-hidden /> Tap to play heartbeat</button>
+          <button className="btn btn-primary flex-1" onClick={() => void resume()}><Play className="size-4" aria-hidden /> Tap to play heartbeat</button>
         ) : (
           <button className="btn btn-ghost flex-1" onClick={() => setPaused((p) => !p)}>{paused ? <Play className="size-4" aria-hidden /> : <Pause className="size-4" aria-hidden />} {paused ? 'Play' : 'Pause'}</button>
         )}
       </div>
-      <p className="mt-2 text-[11px] text-text-3">Demo audio is synthesised. Real family recordings are still an open question.</p>
+      <p className="label mt-2">Demo audio is synthesised. Real family recordings are still an open question.</p>
     </aside>
   );
 }
@@ -84,20 +84,17 @@ export function HeartbeatSection({ a }: { a: Astronaut }) {
   const { s, dispatch } = useMission();
   const last = s.decisions.find((d) => d.astronautId === a.id && d.decision.includes('recorded heartbeat'));
   return (
-    <Panel id="heartbeat" feature="Feature 22 · Heartbeat in a bottle" title="Heartbeat from home" icon={<Heart className="size-5 fill-nasa-red text-nasa-red" aria-hidden />}>
-      <p className="mb-3 text-sm text-text-2">
-        There is no live call home from Mars. When the watch detects a stress spike, the dashboard plays a heartbeat recorded by family before launch.
-        {last ? <> Last played {ago(last.at, s.now)}.</> : ' Not triggered yet.'}
-      </p>
+    <Panel id="heartbeat" feature="Feature 22" title="Heartbeat from home" icon={<Heart className="size-5 text-nasa-bright" aria-hidden />}
+      lead={<>There is no live call home from Mars. When the watch detects a stress spike, the dashboard plays a heartbeat recorded by family before launch.{last ? <> Last played {ago(last.at, s.now)}.</> : ' It has not played yet.'}</>}>
       <ul className="grid gap-2 sm:grid-cols-2">
         {a.family.map((m, i) => (
-          <li key={m.name} className="flex items-center gap-3 rounded-xl border border-line bg-space-0/40 p-3">
-            <Heart className="size-6 text-nasa-red" aria-hidden />
+          <li key={m.name} className="well flex items-center gap-3 p-3">
+            <Heart className="size-6 shrink-0 text-text-3" aria-hidden />
             <div className="flex-1">
               <p className="font-semibold">{m.name} <span className="font-normal text-text-3">({m.relation})</span></p>
-              <p className="num text-xs text-text-3">{m.bpm} bpm · recorded pre-launch</p>
+              <p className="num label">{m.bpm} bpm, recorded before launch</p>
             </div>
-            <button className="btn btn-ghost" onClick={() => dispatch({ type: 'heartbeat', astronautId: a.id, member: i, reason: 'played manually' })}>
+            <button className="btn btn-sm btn-ghost" onClick={() => dispatch({ type: 'heartbeat', astronautId: a.id, member: i, reason: 'played manually' })} aria-label={`Play ${m.name}'s heartbeat`}>
               <Play className="size-4" aria-hidden /> Play
             </button>
           </li>

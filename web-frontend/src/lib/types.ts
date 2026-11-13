@@ -126,6 +126,8 @@ export interface CheckInMessage {
   from: 'agent' | 'astronaut';
   text: string;
   at: number;
+  /** Agent messages only: written by the Gemini backend, or by the local simulation. */
+  source?: 'gemini' | 'simulated';
 }
 
 export interface RootCause {

@@ -1,64 +1,123 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { FlaskConical, Globe2, WifiOff } from 'lucide-react';
-import { useMission } from '@/lib/mission';
+import { usePathname } from 'next/navigation';
+import { useRef, useState } from 'react';
+import clsx from 'clsx';
+import { FlaskConical, Globe2, Sparkles, Watch, WifiOff } from 'lucide-react';
+import { astronautStatus, useMission } from '@/lib/mission';
+import { useBackend } from '@/lib/backend';
+import { useDismiss, useNow } from '@/lib/hooks';
+import { CREW } from '@/lib/crew';
+import { STATUS_META, firstName, initials } from './ui';
 import { SimulatorPanel } from './SimulatorPanel';
+import { ConnectionPanel } from './ConnectionPanel';
 
 function Clock() {
-  const [now, setNow] = useState<number | null>(null);
-  useEffect(() => {
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  if (!now) return <span className="num text-text-3">--:--:--</span>;
+  const now = useNow();
   return (
-    <span className="num text-lg font-semibold tracking-wide" aria-label="UTC time">
-      {new Date(now).toISOString().slice(11, 19)} <span className="text-xs text-text-3">UTC</span>
-    </span>
+    <p className="num hidden items-baseline gap-1.5 text-sm font-semibold lg:flex" aria-label="Coordinated universal time">
+      <span className="min-w-[8ch]">{now ? new Date(now).toISOString().slice(11, 19) : '--:--:--'}</span>
+      <span className="label">UTC</span>
+    </p>
   );
 }
 
+/** Original mark: an orbit and a pulse. Not the NASA insignia, which may not be used without permission. */
+function Mark() {
+  return (
+    <svg viewBox="0 0 32 32" className="size-8 shrink-0" aria-hidden>
+      <circle cx="16" cy="16" r="15" fill="var(--nasa-blue)" />
+      <ellipse cx="16" cy="16" rx="14" ry="5" fill="none" stroke="#fff" strokeOpacity="0.55" strokeWidth="1" transform="rotate(-24 16 16)" />
+      <path d="M5 17h6l2.2-6 3.6 11 2.6-7.5 1.4 2.5H27" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+type Pop = 'sim' | 'agent' | null;
+
 export function Header() {
   const { s, dispatch } = useMission();
-  const [sim, setSim] = useState(false);
+  const backend = useBackend();
+  const path = usePathname();
+  const [pop, setPop] = useState<Pop>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const simBtn = useRef<HTMLButtonElement>(null);
+  const agentBtn = useRef<HTMLButtonElement>(null);
+  useDismiss(pop !== null, () => setPop(null), panel, pop === 'sim' ? simBtn : agentBtn);
+
   const queued = s.reports.filter((r) => r.delivery === 'queued').length;
+  const agent = backend.status === 'live' ? { label: 'Gemini live', cls: 'border-agent text-agent' } : backend.status === 'checking' ? { label: 'Checking agent', cls: 'border-line-strong text-text-2' } : { label: 'Simulated agent', cls: 'border-line-strong text-text-2' };
+
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-space-0/85 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-4 px-4 md:px-8">
-        <Link href="/" className="flex items-center gap-3" aria-label="Crew overview">
-          <svg viewBox="0 0 40 40" className="size-9" aria-hidden>
-            <circle cx="20" cy="20" r="18" fill="#0B3D91" />
-            <ellipse cx="20" cy="20" rx="17" ry="6" fill="none" stroke="#fff" strokeWidth="1.4" transform="rotate(-28 20 20)" />
-            <path d="M8 26 L20 17 L32 12" stroke="#FC3D21" strokeWidth="3" fill="none" strokeLinecap="round" />
-            <circle cx="13" cy="12" r="1" fill="#fff" /><circle cx="27" cy="27" r="1" fill="#fff" />
-          </svg>
-          <div className="leading-tight">
-            <p className="text-sm font-bold tracking-[0.18em]">CREW HEALTH</p>
-            <p className="text-[11px] text-text-3">Space Apps · Vitals monitoring</p>
-          </div>
+    <header className="sticky top-0 z-40 border-b border-line bg-space-0">
+      <div className="mx-auto flex h-14 max-w-[1680px] items-center gap-3 px-4 md:gap-5 md:px-8">
+        <Link href="/" className="flex items-center gap-2.5 rounded-[4px]" aria-label="Crew Health, crew overview">
+          <Mark />
+          <span className="display hidden whitespace-nowrap text-[15px] sm:block">Crew Health</span>
         </Link>
+
+        {/* Jump straight to any crew member's record from anywhere */}
+        <nav aria-label="Crew" className="hidden items-center gap-1 lg:flex">
+          {CREW.map((c) => {
+            const st = s.ready ? astronautStatus(s, c.id).status : 'nominal';
+            const current = path === `/astronaut/${c.id}`;
+            const I = STATUS_META[st].icon;
+            return (
+              <Link
+                key={c.id}
+                href={`/astronaut/${c.id}`}
+                aria-current={current ? 'page' : undefined}
+                className={clsx('flex h-9 items-center gap-2 rounded-[4px] px-2.5 text-sm transition-colors duration-150', current ? 'bg-space-2 text-ink' : 'text-text-2 hover:bg-space-2 hover:text-ink')}
+              >
+                <span className="grid size-6 place-items-center rounded-full bg-space-2 text-[11px] font-bold" aria-hidden>{initials(c.name)}</span>
+                {firstName(c.name)}
+                {s.ready && <I className="size-3.5" style={{ color: STATUS_META[st].color }} aria-label={STATUS_META[st].label} strokeWidth={2.5} />}
+              </Link>
+            );
+          })}
+        </nav>
+
         <div className="ml-auto flex items-center gap-2 md:gap-3">
           <Clock />
+          {/* VitaCuff 3D walkthrough: a static page in public/vitacuff, so a plain link and not a Next route */}
+          <a href="/vitacuff/index.html" target="_blank" rel="noopener" className="btn btn-sm border border-line-strong text-text-2 hover:bg-space-2 hover:text-ink" title="Open the 3D walkthrough of the VitaCuff wrist unit in a new tab">
+            <Watch className="size-4" aria-hidden />
+            <span className="hidden lg:inline">Wrist unit 3D</span>
+            <span className="sr-only lg:hidden">Open the wrist unit 3D walkthrough</span>
+          </a>
           <button
             type="button"
             onClick={() => dispatch({ type: 'earth-link', on: !s.earthLink })}
-            className={`btn h-10 min-h-10 border px-3 text-xs ${s.earthLink ? 'border-nominal/40 text-nominal' : 'border-watch/60 bg-watch/10 text-watch'}`}
+            className={clsx('btn btn-sm border', s.earthLink ? 'border-line-strong text-text-2 hover:bg-space-2 hover:text-ink' : 'border-watch text-watch')}
             aria-pressed={s.earthLink}
-            title="Feature 18: works without Earth contact. Select to toggle the link (demo)."
+            title="Switch Earth contact on or off. Reports queue while it is off."
           >
-            {s.earthLink ? <Globe2 className="size-4" aria-hidden /> : <WifiOff className="size-4" aria-hidden />}
-            {s.earthLink ? 'Earth link' : 'No Earth contact'}
-            {queued > 0 && <span className="num rounded bg-watch px-1.5 text-[10px] text-black">{queued} queued</span>}
+            {s.earthLink ? <Globe2 className="size-4 text-nominal" aria-hidden /> : <WifiOff className="size-4" aria-hidden />}
+            <span className="hidden sm:inline">{s.earthLink ? 'Earth link' : 'No Earth contact'}</span>
+            <span className="sr-only sm:hidden">{s.earthLink ? 'Earth link on' : 'No Earth contact'}</span>
+            {queued > 0 && <span className="num rounded-[3px] bg-watch px-1.5 text-xs font-bold text-space-0">{queued} queued</span>}
           </button>
-          <button type="button" className="btn btn-ghost h-10 min-h-10 px-3 text-xs" onClick={() => setSim((v) => !v)} aria-expanded={sim}>
-            <FlaskConical className="size-4" aria-hidden /> Simulator
+          <button ref={agentBtn} type="button" className={clsx('btn btn-sm border hover:bg-space-2', agent.cls)} onClick={() => setPop((p) => (p === 'agent' ? null : 'agent'))} aria-expanded={pop === 'agent'} aria-haspopup="dialog">
+            <Sparkles className="size-4" aria-hidden />
+            <span className="hidden sm:inline">{agent.label}</span>
+            <span className="sr-only sm:hidden">{agent.label}. Open agent connection.</span>
+            {backend.status === 'live' && <span className="live-dot size-1.5 rounded-full bg-agent" aria-hidden />}
+          </button>
+          <button ref={simBtn} type="button" className="btn btn-sm btn-ghost" onClick={() => setPop((p) => (p === 'sim' ? null : 'sim'))} aria-expanded={pop === 'sim'} aria-haspopup="dialog">
+            <FlaskConical className="size-4" aria-hidden />
+            <span className="hidden sm:inline">Simulator</span>
+            <span className="sr-only sm:hidden">Open simulator</span>
           </button>
         </div>
       </div>
-      {sim && <SimulatorPanel onClose={() => setSim(false)} />}
+      {pop && (
+        <div className="relative mx-auto max-w-[1680px]">
+          <div ref={panel} className="pop-in panel absolute right-4 top-2 z-50 w-[min(440px,calc(100vw-2rem))] border-line-strong bg-space-1 p-4 shadow-[0_24px_64px_rgba(3,8,18,0.8)] md:right-8">
+            {pop === 'sim' ? <SimulatorPanel onClose={() => setPop(null)} /> : <ConnectionPanel onClose={() => setPop(null)} />}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

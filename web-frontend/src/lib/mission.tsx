@@ -9,8 +9,10 @@ import type {
   DecisionLogEntry,
   MedLogEntry,
   Medication,
+  MentalCheck,
   PlanItem,
   Report,
+  RootCause,
   Status,
   StockItem,
   VitalSample,
@@ -29,9 +31,13 @@ import {
   bloodTests,
   checkIn,
   mentalChecks,
+  rootCause,
   sleepNights,
   treatmentPlan,
 } from './crew';
+
+/** Where an agent reply came from: the Gemini backend, or the local rule-based stand-in. */
+export type AgentSource = 'gemini' | 'simulated';
 
 const LIVE_KEEP = 180;
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -57,6 +63,12 @@ export interface MissionState {
   checkins: Record<string, { completed: boolean; missedYesterday: boolean; messages: CheckInMessage[]; step: number }>;
   agentChats: Record<string, CheckInMessage[]>;
   blood: Record<string, BloodTest[]>;
+  /** Root cause written by the Gemini agent (feature 8); falls back to the seeded one. */
+  rootCauses: Record<string, RootCause | undefined>;
+  /** Today's mental-health check scored by the Gemini agent during the check-in (feature 2). */
+  mentalLive: Record<string, MentalCheck | undefined>;
+  /** In-flight agent requests, keyed `chat:<id>`, `checkin:<id>`, `assess:<id>`, `weekly`. Not persisted. */
+  pending: Record<string, boolean>;
 }
 
 type Action =
@@ -69,12 +81,16 @@ type Action =
   | { type: 'decline'; eventId: string }
   | { type: 'crewmate-gave'; eventId: string; by: string }
   | { type: 'earth-link'; on: boolean }
-  | { type: 'weekly-report' }
+  | { type: 'pending'; key: string; on: boolean }
+  | { type: 'weekly-report'; summary?: Record<string, string>; flagged?: string[] }
   | { type: 'location'; location: Location }
   | { type: 'heartbeat'; astronautId: string; member: number; reason: string }
   | { type: 'heartbeat-stop' }
-  | { type: 'checkin'; id: string; text: string }
-  | { type: 'agent'; id: string; text: string }
+  | { type: 'checkin-user'; id: string; text: string }
+  | { type: 'checkin-reply'; id: string; text?: string; completed?: boolean; mental?: MentalCheck | null; source: AgentSource }
+  | { type: 'chat-user'; id: string; text: string }
+  | { type: 'chat-reply'; id: string; text?: string; source: AgentSource }
+  | { type: 'assess-done'; id: string; rootCause?: RootCause; plan?: PlanItem[]; source: AgentSource }
   | { type: 'blood'; id: string; values: Record<string, number> }
   | { type: 'sensor-fault'; id: string }
   | { type: 'med-taken'; id: string; med: string; index: number };
@@ -98,6 +114,9 @@ const empty: MissionState = {
   checkins: {},
   agentChats: {},
   blood: {},
+  rootCauses: {},
+  mentalLive: {},
+  pending: {},
 };
 
 function init(): MissionState {
@@ -333,12 +352,20 @@ function reducer(s: MissionState, a: Action): MissionState {
         reports: a.on ? s.reports.map((r) => (r.delivery === 'queued' ? { ...r, ...dispatchTimes({ ...s, earthLink: true }, Date.now()) } : r)) : s.reports,
       };
 
+    case 'pending':
+      return { ...s, pending: { ...s.pending, [a.key]: a.on } };
+
     case 'weekly-report': {
+      const pending = { ...s.pending, weekly: false };
+      if (a.summary) {
+        const r: Report = { id: `wk-${uid()}`, kind: 'weekly', createdAt: Date.now(), astronautIds: CREW.map((c) => c.id), summary: a.summary, flagged: a.flagged ?? [], ...dispatchTimes(s, Date.now()) };
+        return { ...s, pending, reports: [r, ...s.reports], decisions: [{ id: uid(), at: Date.now(), actor: 'Manager agent', decision: 'Wrote the weekly report for mission command', reason: 'Written by the Gemini agent' }, ...s.decisions] };
+      }
       const summary: Record<string, string> = {};
       const flagged: string[] = [];
       for (const c of CREW) {
         const nights = sleepNights(c.id);
-        const mh = mentalChecks(c.id).slice(-1)[0];
+        const mh = mentalSeries(s, c.id).slice(-1)[0];
         const avg = nights.reduce((x, n) => x + n.hours, 0) / nights.length;
         const evs = s.events.filter((e) => e.astronautId === c.id && !e.suppressed && s.now - e.detectedAt < 7 * 86_400_000);
         summary[c.id] = `Sleep ${avg.toFixed(1)} h/night avg. Mental-health score ${mh.score}/100. ${evs.length} watch event(s). ${s.plans[c.id].filter((p) => p.approval === 'pending-mission-command').length} plan item(s) awaiting approval.`;
@@ -347,7 +374,7 @@ function reducer(s: MissionState, a: Action): MissionState {
         evs.forEach((e) => flagged.push(`${c.name}: ${CONDITIONS[e.condition].label}`));
       }
       const r: Report = { id: `wk-${uid()}`, kind: 'weekly', createdAt: Date.now(), astronautIds: CREW.map((c) => c.id), summary, flagged, ...dispatchTimes(s, Date.now()) };
-      return { ...s, reports: [r, ...s.reports] };
+      return { ...s, pending, reports: [r, ...s.reports] };
     }
     case 'location': {
       const now = Date.now();
@@ -363,16 +390,46 @@ function reducer(s: MissionState, a: Action): MissionState {
     case 'heartbeat-stop':
       return { ...s, heartbeat: null };
 
-    case 'checkin': {
+    case 'checkin-user': {
       const ci = s.checkins[a.id];
-      const msgs = [...ci.messages, { from: 'astronaut' as const, text: a.text, at: Date.now() }];
-      const reply = CHECKIN_SCRIPT[Math.min(ci.step, CHECKIN_SCRIPT.length - 1)];
-      const done = ci.step >= CHECKIN_SCRIPT.length - 1;
-      return { ...s, checkins: { ...s.checkins, [a.id]: { ...ci, step: ci.step + 1, completed: done || ci.completed, messages: [...msgs, { from: 'agent', text: reply, at: Date.now() + 1 }] } } };
+      return { ...s, pending: { ...s.pending, [`checkin:${a.id}`]: true }, checkins: { ...s.checkins, [a.id]: { ...ci, messages: [...ci.messages, { from: 'astronaut', text: a.text, at: Date.now() }] } } };
     }
-    case 'agent': {
+    case 'checkin-reply': {
+      const ci = s.checkins[a.id];
+      // No text from the backend: answer from the local script (the simulation).
+      const scripted = a.text === undefined;
+      const text = a.text ?? CHECKIN_SCRIPT[Math.min(ci.step, CHECKIN_SCRIPT.length - 1)];
+      const done = scripted ? ci.step >= CHECKIN_SCRIPT.length - 1 : a.completed === true;
+      return {
+        ...s,
+        pending: { ...s.pending, [`checkin:${a.id}`]: false },
+        mentalLive: a.mental ? { ...s.mentalLive, [a.id]: a.mental } : s.mentalLive,
+        checkins: { ...s.checkins, [a.id]: { ...ci, step: ci.step + 1, completed: done || ci.completed, messages: [...ci.messages, { from: 'agent', text, at: Date.now(), source: a.source }] } },
+      };
+    }
+    case 'chat-user': {
       const msgs = s.agentChats[a.id] ?? [];
-      return { ...s, agentChats: { ...s.agentChats, [a.id]: [...msgs, { from: 'astronaut', text: a.text, at: Date.now() }, { from: 'agent', text: agentReply(s, a.id, a.text), at: Date.now() + 1 }] } };
+      return { ...s, pending: { ...s.pending, [`chat:${a.id}`]: true }, agentChats: { ...s.agentChats, [a.id]: [...msgs, { from: 'astronaut', text: a.text, at: Date.now() }] } };
+    }
+    case 'chat-reply': {
+      const msgs = s.agentChats[a.id] ?? [];
+      const asked = [...msgs].reverse().find((m) => m.from === 'astronaut')?.text ?? '';
+      const text = a.text ?? agentReply(s, a.id, asked);
+      return { ...s, pending: { ...s.pending, [`chat:${a.id}`]: false }, agentChats: { ...s.agentChats, [a.id]: [...msgs, { from: 'agent', text, at: Date.now(), source: a.source }] } };
+    }
+    case 'assess-done': {
+      const pending = { ...s.pending, [`assess:${a.id}`]: false };
+      const rc = a.rootCause ?? rootCauseFor(s, a.id);
+      const log: DecisionLogEntry = {
+        id: uid(),
+        at: Date.now(),
+        astronautId: a.id,
+        actor: 'Root-cause analysis',
+        decision: `Underlying problem: ${rc.problem}`,
+        reason: a.source === 'gemini' ? `Gemini agent, confidence ${Math.round(rc.confidence * 100)}%` : `Local rules (simulation), confidence ${Math.round(rc.confidence * 100)}%`,
+      };
+      if (!a.rootCause || !a.plan) return { ...s, pending, decisions: [log, ...s.decisions] };
+      return { ...s, pending, rootCauses: { ...s.rootCauses, [a.id]: a.rootCause }, plans: { ...s.plans, [a.id]: a.plan }, decisions: [log, ...s.decisions] };
     }
     case 'blood':
       return {
@@ -402,7 +459,7 @@ function agentReply(s: MissionState, id: string, text: string) {
   const c = CREW.find((x) => x.id === id)!;
   const last = s.vitals[id].slice(-1)[0];
   const nights = sleepNights(id);
-  const mh = mentalChecks(id).slice(-1)[0];
+  const mh = mentalSeries(s, id).slice(-1)[0];
   if (/ill|sick|unwell|bad|headache|dizzy|feel/.test(q))
     return `Your report takes priority over the watch. Right now HR is ${Math.round(last.heartRate)} (baseline ${c.baseline.heartRate}), BP ${Math.round(last.systolic)}/${Math.round(last.diastolic)} (baseline ${c.baseline.systolic}/${c.baseline.diastolic}), and you slept ${nights.slice(-1)[0].hours} h. ${Math.round(last.systolic) - c.baseline.systolic > 10 ? 'Your blood pressure is above your own normal, which can cause headaches.' : 'Nothing in the watch data explains it yet, so I have flagged it for today’s root-cause analysis.'}`;
   if (/sleep|tired/.test(q)) return `Last night: ${nights.slice(-1)[0].hours} h, ${nights.slice(-1)[0].cycles} cycles, ${nights.slice(-1)[0].efficiency}% efficiency. Check your suggested sleep window in the Sleep section.`;
@@ -414,8 +471,8 @@ function agentReply(s: MissionState, id: string, text: string) {
 
 // ───────────── Persistence (survives page reloads; vitals are regenerated) ─────────────
 
-const STORE_KEY = 'crew-health-v1';
-const PERSIST: (keyof MissionState)[] = ['events', 'stock', 'medLog', 'meds', 'decisions', 'reports', 'earthLink', 'location', 'plans', 'checkins', 'agentChats', 'blood', 'sensorFault'];
+const STORE_KEY = 'crew-health-v2';
+const PERSIST: (keyof MissionState)[] = ['events', 'stock', 'medLog', 'meds', 'decisions', 'reports', 'earthLink', 'location', 'plans', 'checkins', 'agentChats', 'blood', 'sensorFault', 'rootCauses', 'mentalLive'];
 
 function loadSaved(): Partial<MissionState> | null {
   try {
@@ -462,7 +519,7 @@ export function MissionProvider({ children }: { children: ReactNode }) {
     if (s.ready) save(s);
     // Save only on meaningful changes, not on every vitals tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.ready, s.events, s.stock, s.medLog, s.meds, s.decisions, s.reports, s.earthLink, s.location, s.plans, s.checkins, s.agentChats, s.blood, s.sensorFault]);
+  }, [s.ready, s.events, s.stock, s.medLog, s.meds, s.decisions, s.reports, s.earthLink, s.location, s.plans, s.checkins, s.agentChats, s.blood, s.sensorFault, s.rootCauses, s.mentalLive]);
   const v = useMemo(() => ({ s, dispatch }), [s]);
   return <MissionCtx.Provider value={v}>{children}</MissionCtx.Provider>;
 }
@@ -479,6 +536,18 @@ export function openEvents(s: MissionState, id?: string) {
   return s.events.filter((e) => (!id || e.astronautId === id) && (e.state === 'countdown' || e.state === 'awaiting-confirm' || e.state === 'crewmate-alerted'));
 }
 
+/** Feature 2: the 14-day series, with today's entry replaced by the Gemini-scored check-in when there is one. */
+export function mentalSeries(s: MissionState, id: string): MentalCheck[] {
+  const seeded = mentalChecks(id);
+  const live = s.mentalLive[id];
+  return live ? [...seeded.slice(0, -1), live] : seeded;
+}
+
+/** Feature 8: the Gemini agent's root cause when it has run, otherwise the seeded one. */
+export function rootCauseFor(s: MissionState, id: string): RootCause {
+  return s.rootCauses[id] ?? rootCause(id);
+}
+
 export function cumulativeDose(s: MissionState, id: string) {
   return PRIOR_DOSE_MSV[id] + doseFromSeries((s.vitals[id] ?? []).slice(0, 288));
 }
@@ -491,11 +560,12 @@ export function astronautStatus(s: MissionState, id: string): { status: Status; 
   if (s.sensorFault[id]) return { status: 'watch', reason: 'Watch sensor fault' };
   const last = s.vitals[id]?.slice(-1)[0];
   if (last && last.radiationRate > SHELTER_RATE_USV_H) return { status: 'critical', reason: 'Take shelter: high radiation' };
-  const mh = mentalChecks(id).slice(-1)[0].score;
+  const mh = mentalSeries(s, id).slice(-1)[0].score;
   const sleep = sleepNights(id).slice(-1)[0].hours;
   if (id === 'maya') return { status: 'watch', reason: 'Elevated radiation dose after EVA' };
   if (mh < 60) return { status: 'watch', reason: `Mental-health score ${mh}/100` };
   if (last && last.systolic - c.baseline.systolic > 12 && last.activity < 0.5) return { status: 'watch', reason: 'BP above personal baseline' };
   if (sleep < 6) return { status: 'watch', reason: `Short sleep (${sleep} h)` };
+  if (last && last.spo2 < 93) return { status: 'watch', reason: 'Blood oxygen below personal baseline' };
   return { status: 'nominal', reason: 'All features within personal baseline' };
 }

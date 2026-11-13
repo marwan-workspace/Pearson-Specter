@@ -1,35 +1,68 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/archivo/wdth.css';
 
 /*
- * Theme: NASA palette (NASA blue #0B3D91, NASA red #FC3D21, white) on a deep-space background.
- * Status colours always ship with an icon + label (never colour alone).
+ * Crew Health design system.
+ *
+ * Colour: a white suit against deep orbital navy. Warm white ink, cool silver for secondary text,
+ *         NASA blue for actions. Mint, amber and coral mean health status and nothing else.
+ * Type:   one family, Archivo Variable. Its width axis carries the hierarchy:
+ *         expanded = identity and headlines, normal = reading, condensed = labels and units.
+ * Shape:  instrument-panel geometry. 6px panels, 4px controls, pills only for status.
+ * Motion: tokens below. Transform and opacity only; everything collapses under reduced motion.
  */
 :root {
-  --space-0: #02040b;
-  --space-1: #0a1124;
-  --space-2: #101a33;
-  --space-3: #182446;
-  --line: rgba(160, 190, 255, 0.12);
-  --line-strong: rgba(160, 190, 255, 0.26);
+  /* Surfaces: deep orbital navy, taken from the VitaCuff walkthrough. Never pure black. */
+  --space-deep: #060e1c; /* behind the suit, and wells inside raised surfaces */
+  --space-0: #091426; /* page */
+  --space-1: #12233b; /* raised surface */
+  --space-2: #172c49; /* hover, selected */
+  --space-3: #26426a; /* tracks, pressed */
+  --line: #2a3d59; /* fine rules that group information */
+  --line-strong: #6f86a6; /* control boundaries: at least 3:1 on every surface */
 
-  --nasa-blue: #0b3d91;
-  --nasa-blue-bright: #4d8dff;
+  /* Ink */
+  --white: #f5f2e9; /* warm white: names and primary readings */
+  --text-2: #b8c7d9; /* cool silver: units, axes, secondary labels */
+  --text-3: #a3b5cb; /* quietest text that still clears 4.5:1 on raised surfaces */
+
+  /* NASA brand */
+  --nasa-blue: #0b3d91; /* solid actions, always with light text */
+  --nasa-blue-hover: #124fb5;
+  --nasa-blue-edge: #5e93e0;
+  --nasa-blue-bright: #83b9ff; /* links, focus, selected details on navy */
   --nasa-red: #fc3d21;
-  --white: #ffffff;
-  --text-2: #bcc7dd;
-  --text-3: #8592ad;
 
-  --nominal: #2fd27a;
-  --watch: #ffb020;
-  --critical: #fc3d21;
-  --agent: #a99bff;
+  /* Health status: always with a word and its own symbol. Crew identity colours are separate. */
+  --nominal: #83e4b5;
+  --watch: #ffd078;
+  --critical: #ff9d95; /* coral, lifted from #FF857C so alert text clears 7:1 on raised and selected surfaces */
+  --critical-surface: #3d161b;
+  --agent: #a5dcf2;
 
-  --chart-1: #4d8dff;
-  --chart-2: #ff8a5c;
-  --chart-3: #36c9b4;
+  --chart-1: #83b9ff;
+  --chart-2: #ffb894;
+  --chart-3: #7fe0d0;
+
+  /* Motion tokens */
+  --duration-instant: 80ms;
+  --duration-fast: 150ms;
+  --duration-normal: 220ms;
+  --duration-deliberate: 320ms;
+  --duration-stage: 700ms;
+  --ease-snappy: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out-ui: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-ui: cubic-bezier(0.7, 0, 0.84, 0);
+
+  --header-h: 56px;
+  --radius-panel: 6px;
+  --radius-control: 4px;
+
+  color-scheme: dark;
 }
 
 @theme inline {
+  --color-space-deep: var(--space-deep);
   --color-space-0: var(--space-0);
   --color-space-1: var(--space-1);
   --color-space-2: var(--space-2);
@@ -39,6 +72,8 @@
   --color-nasa-blue: var(--nasa-blue);
   --color-nasa-bright: var(--nasa-blue-bright);
   --color-nasa-red: var(--nasa-red);
+  --color-critical-surface: var(--critical-surface);
+  --color-ink: var(--white);
   --color-text-2: var(--text-2);
   --color-text-3: var(--text-3);
   --color-nominal: var(--nominal);
@@ -48,59 +83,106 @@
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
-  --font-sans: 'Inter', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
-  --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --font-sans: 'Archivo Variable', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
 }
 
-html {
-  background: var(--space-0);
-  color: var(--white);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  html {
+    background: var(--space-0);
+    color: var(--white);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    scroll-padding-top: calc(var(--header-h) + 72px);
+  }
+  body {
+    min-height: 100dvh;
+    background: var(--space-0);
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p,
+  li {
+    text-wrap: pretty;
+  }
+  button,
+  [role='button'],
+  summary,
+  select,
+  label[for],
+  input[type='radio'],
+  input[type='checkbox'] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  :focus-visible {
+    outline: 2px solid var(--nasa-blue-bright);
+    outline-offset: 2px;
+    border-radius: var(--radius-control);
+  }
+  ::selection {
+    background: var(--nasa-blue);
+    color: var(--white);
+  }
+  /* Quiet scrollbars for the dark theme */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
 }
 
-/* Deep-space backdrop: stars + faint NASA-blue / red nebula */
-body {
-  min-height: 100dvh;
-  background:
-    radial-gradient(1px 1px at 12% 18%, #fff8 50%, transparent 51%),
-    radial-gradient(1px 1px at 72% 9%, #fff9 50%, transparent 51%),
-    radial-gradient(1.5px 1.5px at 38% 62%, #fff7 50%, transparent 51%),
-    radial-gradient(1px 1px at 88% 44%, #fff6 50%, transparent 51%),
-    radial-gradient(1px 1px at 22% 84%, #fff8 50%, transparent 51%),
-    radial-gradient(1.5px 1.5px at 58% 30%, #fff5 50%, transparent 51%),
-    radial-gradient(1px 1px at 93% 78%, #fff7 50%, transparent 51%),
-    radial-gradient(1px 1px at 5% 50%, #fff6 50%, transparent 51%),
-    radial-gradient(900px 600px at 85% -10%, rgba(11, 61, 145, 0.35), transparent 70%),
-    radial-gradient(700px 500px at -10% 110%, rgba(252, 61, 33, 0.12), transparent 70%),
-    var(--space-0);
-  background-attachment: fixed;
-  background-size: 420px 420px, 380px 380px, 520px 520px, 460px 460px, 400px 400px, 600px 600px, 350px 350px, 480px 480px, auto, auto, auto;
-}
+/* ───────────── Type roles (the width axis is the hierarchy) ───────────── */
 
-:focus-visible {
-  outline: 2px solid var(--nasa-blue-bright);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-.panel {
-  background: linear-gradient(180deg, rgba(16, 26, 51, 0.88), rgba(10, 17, 36, 0.92));
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  backdrop-filter: blur(6px);
-}
-.num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.display {
+  font-stretch: 125%;
   font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+}
+.title {
+  font-stretch: 112%;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.label {
+  font-stretch: 84%;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  letter-spacing: 0.012em;
+  line-height: 1.3;
   color: var(--text-3);
 }
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ───────────── Surfaces ───────────── */
+
+.panel {
+  background: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+/* A well sits inside a panel: darker, not another bordered card. */
+.well {
+  background: var(--space-deep);
+  border-radius: var(--radius-control);
+}
+.rule {
+  border-top: 1px solid var(--line);
+}
+
+/* ───────────── Controls ───────────── */
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -108,67 +190,478 @@ body {
   gap: 0.5rem;
   min-height: 44px;
   padding: 0 1rem;
-  border-radius: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   font-weight: 600;
-  font-size: 14px;
-  transition: filter 0.15s, background 0.15s;
+  font-size: 0.875rem;
+  font-stretch: 96%;
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-fast) var(--ease-out-ui),
+    border-color var(--duration-fast) var(--ease-out-ui),
+    color var(--duration-fast) var(--ease-out-ui),
+    transform var(--duration-instant) var(--ease-snappy);
 }
-.btn:hover {
-  filter: brightness(1.12);
+.btn:active:not(:disabled) {
+  transform: scale(0.975);
 }
 .btn:disabled {
   opacity: 0.45;
-  cursor: not-allowed;
+}
+.btn-sm {
+  min-height: 36px;
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
 }
 .btn-primary {
   background: var(--nasa-blue);
-  color: #fff;
-  border: 1px solid #2a63c9;
+  border-color: var(--nasa-blue-edge);
+  color: var(--white);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--nasa-blue-hover);
 }
 .btn-red {
-  background: var(--nasa-red);
-  color: #fff;
+  background: var(--critical);
+  color: #2a0806;
+}
+.btn-red:hover:not(:disabled) {
+  background: #ffa39c;
 }
 .btn-ghost {
-  border: 1px solid var(--line-strong);
+  border-color: var(--line-strong);
   color: var(--white);
-  background: rgba(255, 255, 255, 0.02);
+  background: transparent;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--space-2);
+  border-color: var(--text-2);
+}
+.btn-quiet {
+  color: var(--text-2);
+  background: transparent;
+}
+.btn-quiet:hover:not(:disabled) {
+  background: var(--space-2);
+  color: var(--white);
 }
 
-@keyframes pulse-red {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(252, 61, 33, 0.55); }
-  60% { box-shadow: 0 0 0 10px rgba(252, 61, 33, 0); }
+.field {
+  height: 44px;
+  width: 100%;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  background: var(--space-deep);
+  color: var(--white);
+  font-size: 0.9375rem;
+  transition: border-color var(--duration-fast) var(--ease-out-ui);
 }
-.pulse-red {
-  animation: pulse-red 2s ease-out infinite;
+.field::placeholder {
+  color: var(--text-3);
 }
-@keyframes blink {
-  50% { opacity: 0.3; }
+.field:hover:not(:disabled) {
+  border-color: var(--text-2);
 }
-.blink {
-  animation: blink 1.6s ease-in-out infinite;
-}
-
-.recharts-cartesian-grid line {
-  stroke: rgba(160, 190, 255, 0.1);
-}
-.recharts-text {
-  fill: var(--text-3);
-  font-size: 11px;
-  font-family: var(--font-mono);
+.field:disabled {
+  opacity: 0.5;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+.link {
+  color: var(--nasa-blue-bright);
+  text-decoration: underline;
+  text-decoration-color: rgb(131 185 255 / 0.5);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out-ui);
+}
+.link:hover {
+  text-decoration-color: currentColor;
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -100px;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  background: var(--white);
+  color: var(--space-0);
+  font-weight: 600;
+  border-radius: var(--radius-control);
+}
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+/* Data tables */
+.table {
+  width: 100%;
+  font-size: 0.875rem;
+  border-collapse: collapse;
+}
+.table th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-stretch: 84%;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  color: var(--text-3);
+  color: var(--text-2);
+  border-bottom: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+.table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* ───────────── Motion ───────────── */
+
+/* The one orchestrated moment: the stage readouts arrive after the suit does. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.stage-in {
+  animation: rise-in var(--duration-stage) var(--ease-out-ui) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 120ms);
+}
+/* ───────────── Interaction language ─────────────
+   Everything that can be pressed answers the pointer, and everything that changes says so:
+   names rise into place, figures count up once, highlights slide between options, arrows lean toward
+   where they lead, a row flashes when its status changes. All of it is transform and opacity. */
+
+/* Headline reveal: the name rises out of a mask when the crew member changes. */
+.reveal {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.1em;
+}
+.reveal > span {
+  display: inline-block;
+  animation: reveal-up 620ms var(--ease-out-ui) both;
+}
+@keyframes reveal-up {
+  from {
+    transform: translate3d(0, 108%, 0);
+  }
+  to {
+    transform: none;
+  }
+}
+/* Arrows lean toward where they lead. */
+.nudge {
+  transition: transform var(--duration-normal) var(--ease-out-ui);
+}
+.nudge-back {
+  transition: transform var(--duration-normal) var(--ease-out-ui);
+}
+.btn:hover:not(:disabled) .nudge-back {
+  transform: translate3d(-4px, 0, 0);
+}
+.nudge-host:hover .nudge,
+.nudge-host:focus-visible .nudge,
+.btn:hover:not(:disabled) .nudge {
+  transform: translate3d(4px, 0, 0);
+}
+.btn-primary:hover:not(:disabled) {
+  transform: translate3d(0, -1px, 0);
+}
+/* A row flashes once in its new status colour when its status changes. */
+@keyframes flash {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.flash {
+  animation: flash 1100ms ease-out both;
+}
+/* Body-check buttons */
+.zone-icon {
+  transition: transform var(--duration-normal) var(--ease-out-ui);
+}
+.zone-btn {
+  transition: background-color var(--duration-fast) var(--ease-out-ui);
+}
+.zone-btn:hover .zone-icon {
+  transform: scale(1.2);
+}
+.zone-heart {
+  animation: hb 1s ease-in-out infinite;
+}
+.avatar {
+  transition: transform var(--duration-normal) var(--ease-out-ui);
+}
+.row-btn:hover .avatar {
+  transform: scale(1.08);
+}
+/* Sections of the record rise into view once as they are scrolled to. */
+.on-scroll {
+  opacity: 0;
+  transform: translate3d(0, 16px, 0);
+  transition:
+    opacity 520ms var(--ease-out-ui),
+    transform 520ms var(--ease-out-ui);
+}
+.on-scroll.in {
+  opacity: 1;
+  transform: none;
+}
+/* Sliding highlight behind the chosen option of a switch. */
+.switch-hl {
+  transition: transform var(--duration-normal) var(--ease-out-ui);
+}
+/* Cancel-window countdown: the bar drains with a transform. */
+.drain {
+  transform-origin: left center;
+  transition: transform 260ms linear;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
   }
 }
 
+/* Crew selection: the roster marker moves at once; the readings and suit markings settle together after it. */
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.settle {
+  animation: settle var(--duration-deliberate) var(--ease-out-ui) both;
+  animation-delay: 90ms;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fade-in var(--duration-deliberate) var(--ease-out-ui) both;
+}
+/* Popovers and dialogs grow from their trigger corner. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translate3d(0, -4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pop-in {
+  animation: pop-in var(--duration-normal) var(--ease-out-ui) both;
+  transform-origin: var(--origin, top right);
+}
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.alert-in {
+  animation: alert-in var(--duration-deliberate) var(--ease-out-ui) both;
+}
+
+/* Critical attention: an expanding ring, drawn with opacity + transform on a pseudo-element. */
+.pulse-critical {
+  position: relative;
+}
+.pulse-critical::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 2px solid var(--critical);
+  opacity: 0;
+  pointer-events: none;
+  animation: ring 2s var(--ease-out-ui) infinite;
+}
+@keyframes ring {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.035, 1.3);
+  }
+}
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-dot {
+  animation: live-dot 2s ease-in-out infinite;
+}
 @keyframes hb {
-  0%, 100% { transform: scale(1); }
-  12% { transform: scale(1.25); }
-  24% { transform: scale(1); }
-  36% { transform: scale(1.15); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  12% {
+    transform: scale(1.22);
+  }
+  24% {
+    transform: scale(1);
+  }
+  36% {
+    transform: scale(1.12);
+  }
+}
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translate3d(0, 0, 0);
+  }
+  30% {
+    opacity: 1;
+    transform: translate3d(0, -3px, 0);
+  }
+}
+.typing i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: typing 1.2s var(--ease-out-ui) infinite;
+}
+.typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes shimmer {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.skeleton {
+  background: var(--space-1);
+  border-radius: var(--radius-panel);
+  animation: shimmer 0.9s ease-in-out infinite alternate;
+}
+
+/* Meter fill grows with a transform, never with width. */
+.meter-fill {
+  transform-origin: left center;
+  transition: transform var(--duration-deliberate) var(--ease-out-ui);
+}
+
+/* ───────────── Charts ───────────── */
+
+.recharts-cartesian-grid line {
+  stroke: var(--line);
+}
+.recharts-text {
+  fill: var(--text-2);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-stretch: 84%;
+  font-variant-numeric: tabular-nums;
+}
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
+}
+
+/*
+ * Reduced motion, tiered rather than all-or-nothing:
+ *  - spatial movement (rise, pop, pulse rings, bouncing dots) is removed;
+ *  - short opacity changes that explain a state change stay, at 100ms;
+ *  - the 3D stage holds a still pose (handled in the scene component).
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0.001ms;
+    --duration-fast: 0.001ms;
+    --duration-normal: 100ms;
+    --duration-deliberate: 100ms;
+    --duration-stage: 100ms;
+  }
+  html {
+    scroll-behavior: auto !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .on-scroll {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .reveal > span,
+  .zone-heart,
+  .flash {
+    animation: none !important;
+  }
+  .flash {
+    opacity: 0;
+  }
+  .nudge-host:hover .nudge,
+  .btn:hover:not(:disabled) .nudge,
+  .btn-primary:hover:not(:disabled),
+  .zone-btn:hover .zone-icon,
+  .row-btn:hover .avatar {
+    transform: none;
+  }
+  .stage-in,
+  .settle,
+  .pop-in,
+  .alert-in,
+  .fade-in {
+    animation: fade-in 100ms ease-out both !important;
+  }
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
+  .pulse-critical::after {
+    animation: none !important;
+    opacity: 0.7;
+  }
 }
