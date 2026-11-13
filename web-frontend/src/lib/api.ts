@@ -99,7 +99,7 @@ export const agentApi = {
       kind: KINDS.includes(p.kind as never) ? (p.kind as PlanItem['kind']) : 'exercise',
       text: String(p.text ?? ''),
       urgent: p.urgent === true,
-      approval: APPROVALS.includes(p.approval as never) ? (p.approval as PlanItem['approval']) : p.urgent === true ? 'not-required' : 'pending-mission-command',
+      approval: APPROVALS.includes(p.approval as never) ? (p.approval as PlanItem['approval']) : p.urgent === true && p.kind !== 'medication' ? 'not-required' : 'pending-mission-command', // same rule as overview/agent.py: medication always waits
     })).filter((p) => p.text);
     return {
       rootCause: { date: typeof rc.date === 'string' ? rc.date : input.date, problem: str(rc.problem, 'the problem'), confidence: Math.max(0, Math.min(1, Number(rc.confidence) || 0)), factors },
