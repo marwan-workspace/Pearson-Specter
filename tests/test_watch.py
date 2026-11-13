@@ -1,7 +1,9 @@
-"""python -m unittest discover tests"""
+"""python -m unittest discover tests   (RUN_LIVE_TESTS=1 also runs the Gemini tests)"""
 import json
 import os
+import re
 import unittest
+from pathlib import Path
 
 from watch.decide import RULES, decide, fallback
 from watch.demo import CALM, SCENARIOS
@@ -72,10 +74,19 @@ class WatchTest(unittest.TestCase):
         _, raised, d = run({"temp": 38.9})
         self.assertEqual((raised, d["condition"], d["action"]), (["temp_high"], "fever", "alert_crewmate"))
 
+    def test_every_drug_rule_names_a_stocked_medication(self):
+        # backend/server.js proposes the first medications-table name found in the rule's text
+        schema = (Path(__file__).parent.parent / "database" / "schema.sql").read_text(encoding="utf-8")
+        stocked = re.findall(r"^ \('([a-z ]+)','(?:injection|iv|oral|other)'", schema, re.M)
+        self.assertIn("lorazepam", stocked)
+        for c in RULES["conditions"]:
+            if c["medication"] and c["name"] not in ("low_oxygen", "sensor_fault"):
+                self.assertTrue(any(name in c["medication"].lower() for name in stocked), c["name"])
+
     def test_no_flag_means_no_llm_call(self):
         self.assertEqual(run({})[2]["source"], "rules")
 
-    @unittest.skipUnless(os.environ.get("GEMINI_API_KEY"), "needs GEMINI_API_KEY (decide.py loads it from .env)")
+    @unittest.skipUnless(os.environ.get("RUN_LIVE_TESTS") == "1", "set RUN_LIVE_TESTS=1 to call Gemini (uses quota)")
     def test_real_gemini_call(self):
         d = decide({**CALM, "hr_mean": 36}, "rest", ["hr_low"], BASE, {})
         self.assertEqual((d["source"], d["condition"]), ("llm", "bradycardia"), d["explanation"])

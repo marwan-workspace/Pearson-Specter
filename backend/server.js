@@ -97,7 +97,6 @@ const resolveAstronaut = async (c, key) => {
 const assertVisible = async (c, id) => {
   if (id !== c.astronaut.id && await deciderFor(c, id) !== c.astronaut.id) throw new HttpError(403, 'You cannot access this astronaut’s record.');
 };
-const setCookieHeaders = (token, maxAge) => ({ 'set-cookie': `${COOKIE}=${token}; Path=/backend; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}` });
 
 async function login(body, res) {
   const login = String(body.login || '').trim().toLowerCase(); const pin = String(body.pin || '');
@@ -146,7 +145,8 @@ async function readTable(c, table, id, since) {
 }
 
 async function route(req, res, url) {
-  const method = req.method || 'GET'; const pathName = decodeURIComponent(url.pathname.replace(/^\/backend\/?/, '/'));
+  const method = req.method || 'GET'; let pathName;
+  try { pathName = decodeURIComponent(url.pathname.replace(/^\/backend\/?/, '/')); } catch { throw new HttpError(400, 'Malformed URL.'); }
   const body = ['POST','PUT','PATCH'].includes(method) ? await parseBody(req) : {};
   if (method === 'GET' && pathName === '/health') {
     try { const q = await pool.query('SELECT 1'); return { ok: q.rowCount === 1, service: 'javascript-backend', agent: process.env.GEMINI_API_KEY ? 'configured' : 'uses-python-worker' }; }
@@ -156,8 +156,8 @@ async function route(req, res, url) {
 
   const token = getCookie(req);
   if (method === 'POST' && pathName === '/auth/logout') {
-    const output = await appTransaction(token, async (c) => { await c.query('DELETE FROM sessions WHERE token_hash=$1', [sha256(token)]); return { ok: true }; });
-    cookie(res, '', 0); return output;
+    if (token) await appTransaction(token, async (c) => { await c.query('DELETE FROM sessions WHERE token_hash=$1', [sha256(token)]); });
+    cookie(res, '', 0); return { ok: true };
   }
   if (!token) throw new HttpError(401, 'Sign in to continue.');
 
@@ -500,9 +500,9 @@ async function watchTick() {
       const severity=decision.tier===1?'critical':decision.tier===2?'high':'moderate';
       const ev=(await c.query(`INSERT INTO condition_events(astronaut_id,started_at,condition_key,severity,reported_by,summary)
         VALUES($1,now(),$2,$3,'watch',$4) RETURNING id`,[member.id,decision.condition,severity,decision.explanation])).rows[0];
-      let medicationId=null;
-      const medName=['low_oxygen','sensor_fault'].includes(decision.condition)?'':String(decision.medication||'').toLowerCase().split(/[;,]|\s+or\s+/)[0].replace(/\s*\([^)]*\)/g,'').trim();
-      if(medName) medicationId=(await c.query('SELECT id FROM medications WHERE lower(name)=$1',[medName])).rows[0]?.id || null;
+      // the first stocked drug named in the rule's text: "lorazepam or midazolam" -> lorazepam (tests/test_watch.py checks every rule)
+      const medicationId=['low_oxygen','sensor_fault'].includes(decision.condition)?null:(await c.query(`SELECT id FROM medications
+        WHERE strpos(lower($1),lower(name))>0 ORDER BY strpos(lower($1),lower(name)) LIMIT 1`,[String(decision.medication||'')])).rows[0]?.id||null;
       const decisionType=decision.tier===1?'tier1_auto':decision.tier===2?'tier2_dose':medicationId?'tier3_medication':'watch_event';
       const outcome=decisionType==='watch_event'?'accepted':'proposed';
       const d=(await c.query(`INSERT INTO decisions(astronaut_id,condition_event_id,rule_id,decision_type,actor,rationale,evidence,proposed_action,outcome)
@@ -517,11 +517,10 @@ async function watchTick() {
       const recipients=await c.query('SELECT id FROM astronauts WHERE mission_id=$1 AND active AND id<>$2',[member.mission_id,member.id]);
       if(decision.tier===1||decision.tier===3) for(const r of recipients.rows) await c.query(`INSERT INTO crew_alerts(condition_event_id,medication_event_id,recipient_id,alert_text,action_instructions)
         VALUES($1,$2,$3,$4,$5) ON CONFLICT(condition_event_id,recipient_id) DO NOTHING`,[ev.id,medicationEventId,r.id,`${member.callsign} needs help: ${decision.condition}`,`${decision.first_response}${decision.medication?`. ${decision.medication}`:''}`]);
-      if(decision.tier===1 || decision.condition==='low_oxygen') {
-        const report=await runPython(['-m','overview','emergency'],{astronautId:member.id,decision,reading}).catch(()=>null);
-        if(report) await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,summary,raw_data,flagged_issues)
-          VALUES($1,$2,'emergency',$3,$4::jsonb,$5::jsonb)`,[member.mission_id,member.id,report.summary?.[member.id]||decision.explanation,JSON.stringify(report.rawData||{}),JSON.stringify(report.flagged||[])]);
-      }
+      // same text as overview.agent.emergency_report, built here so no Python process runs inside this transaction
+      if(decision.tier===1 || decision.condition==='low_oxygen') await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,summary,raw_data,flagged_issues)
+        VALUES($1,$2,'emergency',$3,$4::jsonb,$5::jsonb)`,[member.mission_id,member.id,`${decision.condition}: ${decision.action}, ${decision.medication||'no medication'}. ${decision.explanation}`,
+        JSON.stringify({decision,reading}),JSON.stringify([decision.condition])]);
     });
   }
 }

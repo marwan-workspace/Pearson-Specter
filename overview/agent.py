@@ -1,15 +1,14 @@
 """Manager agent on the dashboard side: daily check-in (5), mental health score (2), root cause (8),
 treatment plan (4), any-time chat (9), weekly and emergency reports (6).
 
-Every function takes one JSON-ready dict and returns one, shaped like web-frontend/src/lib/types.ts.
-From JavaScript:  python -m overview <assess|checkin|chat|weekly|emergency> < input.json
+Every function takes one JSON-ready dict and returns one.
+From JavaScript (backend/server.js):  python -m overview <assess|checkin|chat|weekly|emergency> < input.json
 """
 import json
 import time
 
 import llm
 
-# the same five questions and 0-4 scale as web-frontend/src/lib/crew.ts
 MH_QUESTIONS = [
     "How would you rate your mood today?",
     "How well are you coping with workload?",
@@ -17,7 +16,7 @@ MH_QUESTIONS = [
     "How calm do you feel right now?",
     "How motivated are you about tomorrow?",
 ]
-THERAPY_BELOW = 70  # same cut-off as therapyRecommendation() in crew.ts
+THERAPY_BELOW = 70
 THERAPY_TEXT = "Daily guided session with the agent, results shared with mission command"
 URGENCY = ["routine", "urgent", "emergency"]
 VOICE = (

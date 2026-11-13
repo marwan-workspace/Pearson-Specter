@@ -61,7 +61,9 @@ export function BackendRecord({astronautKey}:{astronautKey:string}) {
     } catch(e) {setNotice(e instanceof Error?e.message:'Could not load alerts and decisions.');}
   },[astronautKey,isSelf]);
 
-  useEffect(()=>{void loadStreams(true);void loadRelated();const t=setInterval(()=>{void loadStreams(false);void loadRelated();},2000);return()=>clearInterval(t);},[loadStreams,loadRelated]);
+  // vitals and events stream every 2 s via ?since=; the full related lists are refetched every 10 s, and after each action
+  useEffect(()=>{void loadStreams(true);const t=setInterval(()=>void loadStreams(false),2000);return()=>clearInterval(t);},[loadStreams]);
+  useEffect(()=>{void loadRelated();const t=setInterval(()=>void loadRelated(),10_000);return()=>clearInterval(t);},[loadRelated]);
 
   async function act(path:string,body:Row={}) {setBusy(true);setNotice('');try{await backendRequest(path,{method:'POST',body:JSON.stringify(body)});setNotice('Saved.');await Promise.all([loadStreams(true),loadRelated()]);}catch(e){setNotice(e instanceof Error?e.message:'Action failed.');}finally{setBusy(false);}}
   async function send(kind:'chat'|'checkin') {

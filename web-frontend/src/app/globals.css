@@ -599,23 +599,6 @@
   transition: transform var(--duration-deliberate) var(--ease-out-ui);
 }
 
-/* ───────────── Charts ───────────── */
-
-.recharts-cartesian-grid line {
-  stroke: var(--line);
-}
-.recharts-text {
-  fill: var(--text-2);
-  font-size: 12px;
-  font-family: var(--font-sans);
-  font-stretch: 84%;
-  font-variant-numeric: tabular-nums;
-}
-.recharts-wrapper:focus,
-.recharts-surface:focus {
-  outline: none;
-}
-
 /*
  * Reduced motion, tiered rather than all-or-nothing:
  *  - spatial movement (rise, pop, pulse rings, bouncing dots) is removed;
