@@ -57,7 +57,6 @@ Medication per condition (starting point, see warning below):
 | Low blood pressure (not shock) | Lie down, fluids | Midodrine (oral) | No | 3 |
 | High blood pressure (emergency) | Rest, recheck | Labetalol or nicardipine (IV); captopril (oral) | No | 3 |
 
-> **Warning:** this table comes from general medical knowledge. It has not been checked against NASA's medical kit or current clinical guidelines, and contains no doses. A medical reviewer must check it before it is presented as fact.
 
 #### 13. Personal baselines — Should
 The rules compare each astronaut to their own normal values instead of Earth population averages, to cut false alarms.
