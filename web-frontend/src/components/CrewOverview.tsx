@@ -103,6 +103,7 @@ export function CrewOverview() {
     setBusy(key);
     try {
       await backendRequest(path, { method: 'POST', body: JSON.stringify(body) });
+      if (path.startsWith('/decisions/')) setDecisions((prev) => prev.filter((d) => d.id !== key));
       setNotice({ tone: 'nominal', text: done });
       if (alsoMe) await refreshMe();
       await refresh();
@@ -140,7 +141,7 @@ export function CrewOverview() {
         ].map((s, i) => (
           <div key={s.label} className="panel lift settle p-4" style={{ '--i': i } as CSSProperties}>
             <dt className="label">{s.label}</dt>
-            <dd className="num display glow-cyan mt-1 text-3xl">{s.value ?? <Skeleton className="h-8 w-16" />}</dd>
+            <dd className="num display glow-accent mt-1 text-3xl">{s.value ?? <Skeleton className="h-8 w-16" />}</dd>
             <p className={`mt-1 text-sm ${s.alert ? 'text-warning' : 'text-secondary'}`}>{s.hint || ' '}</p>
           </div>
         ))}
@@ -220,7 +221,7 @@ export function CrewOverview() {
                 <legend className="label mb-2">Location (sets the delay and radiation limits)</legend>
                 <div className="well grid grid-cols-3 gap-1 p-1">
                   {LOCATIONS.map((loc) => (
-                    <label key={loc} className={`btn btn-sm cursor-pointer has-focus-visible:outline-2 has-focus-visible:outline-accent ${location === loc ? 'border-hairline-cyan bg-accent-dim text-accent' : 'btn-quiet'}`}>
+                    <label key={loc} className={`btn btn-sm cursor-pointer has-focus-visible:outline-2 has-focus-visible:outline-accent ${location === loc ? 'border-hairline-accent bg-accent-dim text-accent' : 'btn-quiet'}`}>
                       <input type="radio" name="location" className="sr-only" checked={location === loc} onChange={() => void run('location', `Mission location set to ${LOCATION_LABEL[loc]}.`, '/command/location', { location: loc }, true)} />
                       {LOCATION_LABEL[loc]}
                     </label>

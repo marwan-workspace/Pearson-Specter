@@ -1,5 +1,6 @@
 .env
 .venv
+.venv-windows/
 raw.zip
 __pycache__/
 .venv-graphify/

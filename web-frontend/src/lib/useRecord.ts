@@ -34,11 +34,18 @@ export function useRecord(astronautKey: string, isSelf: boolean) {
   const cursor = useRef<Partial<Record<StreamName, string>>>({});
   const polling = useRef(false);
   const wantFull = useRef(false);
+  const fullWaiters = useRef<Array<() => void>>([]);
   const ticks = useRef(0);
   const key = encodeURIComponent(astronautKey);
 
   const loadStreams = useCallback(async (initial = false) => {
-    if (polling.current) { if (initial) wantFull.current = true; return; } // a full reload asked mid-poll runs right after it
+    if (polling.current) {
+      if (initial) {
+        wantFull.current = true;
+        return new Promise<void>((resolve) => fullWaiters.current.push(resolve));
+      }
+      return;
+    }
     polling.current = true;
     try {
       const fresh: Partial<Record<StreamName, Row[]>> = {};
@@ -59,8 +66,9 @@ export function useRecord(astronautKey: string, isSelf: boolean) {
         for (const name of STREAMS) {
           const rows = fresh[name] || [];
           if (!rows.length) continue;
+          const updates = new Map(rows.map((x) => [x.id, x]));
           const have = new Set((prev[name] as unknown as Row[]).map((x) => x.id));
-          merged[name] = [...rows.filter((x) => !have.has(x.id)), ...(prev[name] as unknown as Row[])];
+          merged[name] = [...rows.filter((x) => !have.has(x.id)), ...(prev[name] as unknown as Row[]).map((x) => updates.get(x.id) ?? x)];
         }
         return merged as unknown as RecordStreams;
       });
@@ -68,7 +76,11 @@ export function useRecord(astronautKey: string, isSelf: boolean) {
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not load the astronaut record.'); }
     finally {
       polling.current = false;
-      if (wantFull.current) { wantFull.current = false; void loadStreams(true); }
+      if (wantFull.current) {
+        wantFull.current = false;
+        const waiting = fullWaiters.current.splice(0);
+        void loadStreams(true).finally(() => waiting.forEach((resolve) => resolve()));
+      }
     }
   }, [key]);
 
@@ -99,5 +111,9 @@ export function useRecord(astronautKey: string, isSelf: boolean) {
   usePoll(loadRelated, 10_000, isSelf);
 
   const reload = useCallback(() => Promise.all([loadStreams(true), loadRelated()]).then(() => undefined), [loadStreams, loadRelated]);
-  return { records, related, error, reload };
+  const resolveDecision = useCallback((decision: Decision) => {
+    setRelated((prev) => prev ? { ...prev, pending: prev.pending.filter((d) => d.id !== decision.id) } : prev);
+    setRecords((prev) => prev ? { ...prev, decisions: prev.decisions.map((d) => d.id === decision.id ? decision : d) } : prev);
+  }, []);
+  return { records, related, error, reload, resolveDecision };
 }

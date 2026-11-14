@@ -19,7 +19,7 @@ const simClock = (s: number) => `T+${String(Math.floor(s / 3600)).padStart(2, '0
 
 /** What the assessment button is doing. The parent runs the real request and moves through these. */
 export type AssessStage = 'idle' | 'scanning' | 'evaluating' | 'saved';
-export const ASSESS_LABEL: Record<AssessStage, string> = { idle: 'Run assessment', scanning: 'Scanning biometrics…', evaluating: 'Evaluating ML + Gemini rules…', saved: 'Saved' };
+export const ASSESS_LABEL: Record<AssessStage, string> = { idle: 'Run assessment', scanning: 'Scanning…', evaluating: 'Reviewing assessment…', saved: 'Saved' };
 
 function MetricCard({ k, s, selected, onSelect, barRef, i }: { k: MetricKey; s: Snapshot; selected: boolean; onSelect: () => void; barRef: (el: HTMLSpanElement | null) => void; i: number }) {
   const d = METRICS[k];
@@ -34,7 +34,7 @@ function MetricCard({ k, s, selected, onSelect, barRef, i }: { k: MetricKey; s: 
         <span className="min-w-0 leading-tight">{d.label}</span>
       </span>
       <span className="mt-1 block truncate">
-        <span className="num display glow-cyan text-xl 2xl:text-2xl" style={{ color: status === 'nominal' ? undefined : TONE_VAR[status] }}>{shown}</span>
+        <span className="num display glow-accent text-xl 2xl:text-2xl" style={{ color: status === 'nominal' ? undefined : TONE_VAR[status] }}>{shown}</span>
         <span className="label ml-1">{d.unit}</span>
       </span>
       {/* the level bar is moved every frame by the deck, between the 1 Hz digit ticks */}
@@ -64,7 +64,7 @@ function Trend({ k, s }: { k: MetricKey; s: Snapshot }) {
       </div>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="mt-2 h-36 w-full" role="img" aria-label={`${d.label}: minimum ${f(min)}, average ${f(avg)}, maximum ${f(max)} ${d.unit}`}>
         {[d.low, d.high].map((limit, i) => limit === undefined ? null : <line key={i} x1={pad} x2={w - pad} y1={y(limit)} y2={y(limit)} stroke="var(--status-warning)" strokeWidth="1" strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />)}
-        {data.length > 1 && <polyline points={pts} fill="none" stroke="var(--accent-cyan)" strokeWidth="1.8" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+        {data.length > 1 && <polyline points={pts} fill="none" stroke="var(--accent-primary)" strokeWidth="1.8" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
       </svg>
       <p className="mt-2 text-sm text-secondary">{d.note} <span className="label">Limit source: {d.source === 'demo' ? 'demo value, not a clinical limit' : d.source}.</span></p>
     </div>
@@ -183,10 +183,10 @@ export function TelemetryDeck({ engine, seededAt, onRunAssessment, stage, canAss
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         {/* 3D digital twin */}
-        <Panel title="Suit and body digital twin" icon={Box} i={2} action={abnormal ? <Pill tone="critical" icon={ShieldAlert}>{abnormal} {abnormal === 1 ? 'zone' : 'zones'} flagged</Pill> : <Pill tone="nominal">All zones nominal</Pill>}>
+        <Panel title="Suit status" icon={Box} i={2} action={abnormal ? <Pill tone="critical" icon={ShieldAlert}>{abnormal} {abnormal === 1 ? 'zone' : 'zones'} flagged</Pill> : <Pill tone="nominal">All zones nominal</Pill>}>
           <div className="scope relative h-[420px] overflow-hidden rounded-[var(--radius-control)] sm:h-[520px]">
             <SuitViewport engine={engine} selected={zone} onSelect={setZone} xray={xray} autoRotate={autoRotate} statuses={s.zones} resetSignal={reset} />
-            <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-wrap items-start justify-between gap-2">
+            <div className="suit-controls pointer-events-none absolute inset-x-2 top-2 flex flex-wrap items-start justify-between gap-2">
               <div role="group" aria-label="Render mode" className="hud pointer-events-auto flex gap-1 rounded-[var(--radius-control)] p-1">
                 <button type="button" aria-pressed={!xray} onClick={() => setXray(false)} className={`btn btn-sm min-h-8 ${!xray ? 'seg-on' : 'btn-quiet'}`}>Suit exterior</button>
                 <button type="button" aria-pressed={xray} onClick={() => setXray(true)} className={`btn btn-sm min-h-8 ${xray ? 'seg-on' : 'btn-quiet'}`}>X-ray biometrics</button>
@@ -197,12 +197,12 @@ export function TelemetryDeck({ engine, seededAt, onRunAssessment, stage, canAss
               </div>
             </div>
             {stage === 'scanning' && <p className="hud pointer-events-none absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-2 px-3 py-1.5 text-sm"><ReticleIcon />Scanning helmet to boots</p>}
-            <p className="label pointer-events-none absolute bottom-2 right-3 hidden sm:block">Drag to rotate · scroll to zoom · click a part</p>
+            {stage !== 'scanning' && <p className="label pointer-events-none absolute bottom-2 right-3 hidden sm:block">Drag to rotate · scroll to zoom · click a part</p>}
           </div>
           <div role="group" aria-label="Jump to a zone" className="mt-3 flex flex-wrap gap-1.5">
             {ZONES.map((z) => (
               <button key={z.id} type="button" aria-pressed={zone === z.id} onClick={() => setZone(zone === z.id ? null : z.id)} className={`btn btn-sm min-h-9 ${zone === z.id ? 'seg-on' : 'btn-ghost'}`}>
-                <span className="size-2 shrink-0 rounded-full" style={{ background: TONE_VAR[s.zones[z.id]], boxShadow: `0 0 8px ${TONE_VAR[s.zones[z.id]]}` }} aria-hidden />
+                <span className="size-2 shrink-0 rounded-full" style={{ background: TONE_VAR[s.zones[z.id]] }} aria-hidden />
                 <span className="num">{z.number}</span> {z.short}
                 <span className="sr-only">, {s.zones[z.id]}</span>
               </button>

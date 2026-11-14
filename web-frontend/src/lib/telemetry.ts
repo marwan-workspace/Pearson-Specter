@@ -50,17 +50,17 @@ export interface MetricDef {
 }
 
 export const METRICS: Record<MetricKey, MetricDef> = {
-  hr: { key: 'hr', label: 'Heart rate', unit: 'bpm', digits: 0, range: [30, 180], low: T.hr_low, high: REST_HR_HIGH, source: 'rules.json', note: `Low below ${T.hr_low} (rules.json). High above ${REST_HR_HIGH} at rest or under stress (baselines.json); normal during exercise.` },
+  hr: { key: 'hr', label: 'HR', unit: 'bpm', digits: 0, range: [30, 180], low: T.hr_low, high: REST_HR_HIGH, source: 'rules.json', note: `Low below ${T.hr_low} (rules.json). High above ${REST_HR_HIGH} at rest or under stress (baselines.json); normal during exercise.` },
   spo2: { key: 'spo2', label: 'Blood oxygen', unit: '%', digits: 0, range: [80, 100], low: T.spo2_low, source: 'rules.json', note: `Low below ${T.spo2_low}% (rules.json).` },
-  temp: { key: 'temp', label: 'Core temperature', unit: '°C', digits: 1, range: [35.5, 39.5], high: T.temp_high, source: 'rules.json', note: `Fever above ${T.temp_high} °C (rules.json).` },
+  temp: { key: 'temp', label: 'TEMP', unit: '°C', digits: 1, range: [35.5, 39.5], high: T.temp_high, source: 'rules.json', note: `Fever above ${T.temp_high} °C (rules.json).` },
   sys: { key: 'sys', label: 'Arterial pressure', unit: 'mmHg', digits: 0, range: [60, 200], low: T.bp_sys_low, high: T.bp_sys_high, source: 'rules.json', note: `Systolic low below ${T.bp_sys_low}, shock below ${T.bp_sys_shock}, high above ${T.bp_sys_high} (rules.json).` },
   dia: { key: 'dia', label: 'Diastolic', unit: 'mmHg', digits: 0, range: [40, 120], source: 'demo', note: 'Shown with systolic.' },
-  resp: { key: 'resp', label: 'Respiration', unit: 'rpm', digits: 0, range: [6, 36], high: 24, source: 'demo', note: 'Demo limit: raised above 24 breaths a minute.' },
-  hrv: { key: 'hrv', label: 'Heart-rate variability', unit: 'ms', digits: 0, range: [0, 100], low: 25, source: 'demo', note: 'Demo limit: low below 25 ms.' },
-  suit: { key: 'suit', label: 'Suit pressure', unit: 'psi', digits: 2, range: [2.5, 4.6], low: 4.0, source: 'demo', note: 'Nominal 4.3 psi. Demo limit: low below 4.0 psi.' },
-  co2: { key: 'co2', label: 'Helmet CO₂', unit: 'mmHg', digits: 1, range: [0, 16], high: 7.6, source: 'demo', note: 'Demo limit: high above 7.6 mmHg.' },
-  coolant: { key: 'coolant', label: 'Coolant loop', unit: '°C', digits: 1, range: [10, 34], high: 24, source: 'demo', note: 'Demo limit: warm above 24 °C.' },
-  rad: { key: 'rad', label: 'Radiation dose', unit: 'mSv/day', digits: 2, range: [0, 3], high: 2, source: 'demo', note: 'Demo limit: high above 2 mSv a day. The real watch compares the dose rate with a per-location limit.' },
+  resp: { key: 'resp', label: 'RESP', unit: 'rpm', digits: 0, range: [6, 36], high: 24, source: 'demo', note: 'Demo limit: raised above 24 breaths a minute.' },
+  hrv: { key: 'hrv', label: 'HRV', unit: 'ms', digits: 0, range: [0, 100], low: 25, source: 'demo', note: 'Demo limit: low below 25 ms.' },
+  suit: { key: 'suit', label: 'SUIT P', unit: 'psi', digits: 2, range: [2.5, 4.6], low: 4.0, source: 'demo', note: 'Nominal 4.3 psi. Demo limit: low below 4.0 psi.' },
+  co2: { key: 'co2', label: 'CO₂', unit: 'mmHg', digits: 1, range: [0, 16], high: 7.6, source: 'demo', note: 'Demo limit: high above 7.6 mmHg.' },
+  coolant: { key: 'coolant', label: 'COOLANT', unit: '°C', digits: 1, range: [10, 34], high: 24, source: 'demo', note: 'Demo limit: warm above 24 °C.' },
+  rad: { key: 'rad', label: 'DOSE', unit: 'mSv/day', digits: 2, range: [0, 3], high: 2, source: 'demo', note: 'Demo limit: high above 2 mSv a day. The real watch compares the dose rate with a per-location limit.' },
 };
 /** Card order. Diastolic is shown inside the arterial-pressure card. */
 export const CARD_ORDER: MetricKey[] = ['hr', 'spo2', 'sys', 'temp', 'resp', 'hrv', 'suit', 'co2', 'coolant', 'rad'];
@@ -360,7 +360,7 @@ export function zoneReport(id: ZoneId, s: Snapshot): ZoneReport {
     case 'helmet':
       return {
         integrity: hasFault ? Math.round((v.suit / 4.3) * 100) : base,
-        readings: [{ label: 'Blood oxygen', value: fmt('spo2', v.spo2) }, { label: 'Helmet CO₂', value: fmt('co2', v.co2) }, { label: 'Suit pressure', value: fmt('suit', v.suit) }, { label: 'HRV (fatigue)', value: fmt('hrv', v.hrv) }],
+        readings: [{ label: 'Blood oxygen', value: fmt('spo2', v.spo2) }, { label: 'CO₂', value: fmt('co2', v.co2) }, { label: 'SUIT P', value: fmt('suit', v.suit) }, { label: 'HRV (fatigue)', value: fmt('hrv', v.hrv) }],
         diagnosis: hasFault ? 'Visor seal leak: helmet pressure and blood oxygen are falling.' : v.spo2 < T.spo2_low ? 'Hypoxia: blood oxygen is below the limit.' : v.co2 > 5 ? 'CO₂ is building up in the helmet.' : v.hrv < 25 ? 'Low heart-rate variability: a sign of stress or fatigue.' : 'Visor sealed, breathing gas within limits.',
         protocol: rule(['low_oxygen']),
         countermeasure: hasFault ? 'Reseat visor seal' : 'Purge helmet gas',
@@ -368,7 +368,7 @@ export function zoneReport(id: ZoneId, s: Snapshot): ZoneReport {
     case 'cardio':
       return {
         integrity: base,
-        readings: [{ label: 'Heart rate', value: fmt('hr', v.hr) }, { label: 'Arterial pressure', value: `${v.sys.toFixed(0)}/${v.dia.toFixed(0)} mmHg` }, { label: 'Respiration', value: fmt('resp', v.resp) }, { label: 'Core temperature', value: fmt('temp', v.temp) }],
+        readings: [{ label: 'HR', value: fmt('hr', v.hr) }, { label: 'Arterial pressure', value: `${v.sys.toFixed(0)}/${v.dia.toFixed(0)} mmHg` }, { label: 'RESP', value: fmt('resp', v.resp) }, { label: 'TEMP', value: fmt('temp', v.temp) }],
         diagnosis: v.hr < T.hr_low ? 'Bradycardia: heart rate is below the limit.' : v.hr > REST_HR_HIGH && s.activity === 'exercise' ? 'High heart rate, expected during exercise.' : v.hr > REST_HR_HIGH ? `High heart rate while the activity is "${s.activity}".` : v.sys > 150 ? 'Blood pressure is raised.' : 'Heart rhythm and pressure within limits.',
         protocol: rule(['bradycardia', 'shock', 'tachycardia', 'panic_attack', 'high_bp', 'low_bp']),
         countermeasure: 'Start rest protocol',
@@ -384,7 +384,7 @@ export function zoneReport(id: ZoneId, s: Snapshot): ZoneReport {
     case 'rightArm':
       return {
         integrity: Math.round(clamp(s.armPressure / 4.3, 0, 1) * 100),
-        readings: [{ label: 'Forearm pressure', value: `${s.armPressure.toFixed(2)} psi` }, { label: 'Suit pressure', value: fmt('suit', v.suit) }, { label: 'Glove heater', value: 'on' }],
+        readings: [{ label: 'Forearm pressure', value: `${s.armPressure.toFixed(2)} psi` }, { label: 'SUIT P', value: fmt('suit', v.suit) }, { label: 'Glove heater', value: 'on' }],
         diagnosis: s.armPressure < 3.6 ? 'Suit breach: the right forearm is venting gas.' : s.armPressure < 4.1 ? 'Pressure is recovering after a leak.' : 'Arm and glove seals holding at nominal pressure.',
         protocol: null,
         countermeasure: 'Seal breach',
@@ -392,7 +392,7 @@ export function zoneReport(id: ZoneId, s: Snapshot): ZoneReport {
     case 'plss':
       return {
         integrity: base,
-        readings: [{ label: 'Helmet CO₂', value: fmt('co2', v.co2) }, { label: 'Coolant loop', value: fmt('coolant', v.coolant) }, { label: 'Radiation dose', value: fmt('rad', v.rad) }, { label: 'Scrubber', value: hasFault ? 'failed' : 'running' }],
+        readings: [{ label: 'CO₂', value: fmt('co2', v.co2) }, { label: 'COOLANT', value: fmt('coolant', v.coolant) }, { label: 'DOSE', value: fmt('rad', v.rad) }, { label: 'Scrubber', value: hasFault ? 'failed' : 'running' }],
         diagnosis: hasFault ? 'CO₂ scrubber failure: the backpack is no longer cleaning the breathing gas.' : v.coolant > 24 ? 'Coolant loop is running warm.' : 'Oxygen, scrubber and coolant loop running normally.',
         protocol: rule(['low_oxygen', 'radiation_sickness']),
         countermeasure: 'Switch to reserve scrubber',
@@ -400,7 +400,7 @@ export function zoneReport(id: ZoneId, s: Snapshot): ZoneReport {
     case 'metabolic':
       return {
         integrity: base,
-        readings: [{ label: 'Core temperature', value: fmt('temp', v.temp) }, { label: 'Coolant loop', value: fmt('coolant', v.coolant) }, { label: 'Respiration', value: fmt('resp', v.resp) }, { label: 'Activity', value: s.activity }],
+        readings: [{ label: 'TEMP', value: fmt('temp', v.temp) }, { label: 'COOLANT', value: fmt('coolant', v.coolant) }, { label: 'RESP', value: fmt('resp', v.resp) }, { label: 'Activity', value: s.activity }],
         diagnosis: hasFault ? 'Cooling garment failure: body heat is not being carried away.' : v.temp > T.temp_high ? 'Core temperature is above the fever limit.' : s.activity === 'exercise' ? 'Metabolic heat is high from exertion.' : 'Thermal balance within limits.',
         protocol: rule(['fever']),
         countermeasure: hasFault ? 'Restore cooling flow' : 'Start rest protocol',
@@ -408,7 +408,7 @@ export function zoneReport(id: ZoneId, s: Snapshot): ZoneReport {
     case 'legs':
       return {
         integrity: hasFault ? Math.round((v.suit / 4.3) * 100) : base,
-        readings: [{ label: 'Exertion', value: s.activity === 'exercise' ? 'high' : 'low' }, { label: 'Suit pressure', value: fmt('suit', v.suit) }, { label: 'Heart rate', value: fmt('hr', v.hr) }],
+        readings: [{ label: 'Exertion', value: s.activity === 'exercise' ? 'high' : 'low' }, { label: 'SUIT P', value: fmt('suit', v.suit) }, { label: 'HR', value: fmt('hr', v.hr) }],
         diagnosis: hasFault ? 'Boot joint leak: the lower suit is losing pressure.' : s.activity === 'exercise' ? 'Leg muscles and joints under heavy load.' : 'Leg joints and boots nominal.',
         protocol: null,
         countermeasure: hasFault ? 'Seal breach' : 'Start rest protocol',

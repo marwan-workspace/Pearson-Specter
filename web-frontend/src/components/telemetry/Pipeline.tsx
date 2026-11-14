@@ -39,20 +39,20 @@ export function Pipeline({ s }: { s: Snapshot }) {
   return (
     <div className="grid gap-4">
       <ol className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
-        <Stage n={1} icon={Cpu} title="Watch sensor and ML model" active={live}>
+        <Stage n={1} icon={Cpu} title="Activity classification" active={live}>
           {s.sensorFault ? <Pill tone="fault">Unknown</Pill> : <Pill tone={s.activity === 'rest' ? 'nominal' : 'warning'}>{words(s.activity)}</Pill>}
           <span>activity class</span>
         </Stage>
         <Link flowing={live} />
-        <Stage n={2} icon={Gauge} title="Fixed vitals threshold check" active={live}>
+        <Stage n={2} icon={Gauge} title="Thresholds" active={live}>
           {flagged ? s.flags.map((f) => <Pill key={f} tone={f === 'sensor_fault' ? 'fault' : 'critical'}>{f}</Pill>) : <Pill tone="nominal">No flags</Pill>}
         </Stage>
         <Link flowing={live && flagged} />
-        <Stage n={3} icon={BrainCircuit} title="Gemini clinical decision" active={live && flagged}>
-          {flagged ? <><Pill tone="info">Consulted on a flag</Pill><span>Showing the rules-only answer: {words(s.decision.condition)}</span></> : <><Pill tone="neutral">Standby</Pill><span>Not called without a flag</span></>}
+        <Stage n={3} icon={BrainCircuit} title="Decision rules" active={live && flagged}>
+          {flagged ? <><Pill tone="info">Flag raised</Pill><span>Response: {words(s.decision.condition)}</span></> : <><Pill tone="neutral">Standby</Pill><span>No response needed</span></>}
         </Stage>
         <Link flowing={live && flagged} />
-        <Stage n={4} icon={ShieldCheck} title="rules.json response and safety guards" active={live && flagged}>
+        <Stage n={4} icon={ShieldCheck} title="Safety checks" active={live && flagged}>
           {s.decision.condition === 'none' ? <span>{s.decision.note}</span> : (
             <>
               <Pill tone={s.decision.tier === 1 ? 'critical' : 'warning'}>Tier {s.decision.tier}</Pill>

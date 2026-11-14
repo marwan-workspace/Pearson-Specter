@@ -10,7 +10,7 @@ const TONE_VAR: Record<Tone, string> = {
   warning: 'var(--status-warning)',
   critical: 'var(--status-critical)',
   fault: 'var(--status-fault)',
-  info: 'var(--accent-cobalt)',
+  info: 'var(--accent-secondary)',
   neutral: 'var(--text-secondary)',
 };
 // The status colours have their own glow tokens; the rest get a tint of their colour from the .pill rule.
@@ -58,10 +58,10 @@ export function Panel({ title, icon: Icon, iconMotion = '', count, action, child
   const id = useId();
   return (
     <section aria-labelledby={id} className={`panel settle flex min-w-0 flex-col ${className}`} style={{ '--i': i } as CSSProperties}>
-      <header className="flex min-h-[52px] items-center justify-between gap-3 border-b border-hairline px-4 py-2 md:px-5">
+      <header className="flex min-h-[52px] flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-2 md:px-5">
         <h2 id={id} className="title flex min-w-0 items-center gap-2 text-base">
           {Icon && <Icon className={`size-4 shrink-0 text-accent ${iconMotion}`} aria-hidden />}
-          <span className="truncate">{title}</span>
+          <span>{title}</span>
           {count !== undefined && <span className="num label rounded-full bg-elevated px-2 py-0.5">{count}</span>}
         </h2>
         {action}
@@ -160,7 +160,7 @@ export function Tabs({ tabs, value, onChange, label }: { tabs: TabDef[]; value: 
 }
 
 /** A trend line for the last readings. Decorative next to the number it sits beside, so it is hidden from screen readers. */
-export function Sparkline({ values, color = 'var(--accent-cyan)' }: { values: number[]; color?: string }) {
+export function Sparkline({ values, color = 'var(--accent-primary)' }: { values: number[]; color?: string }) {
   if (values.length < 2) return <div className="h-10" aria-hidden />;
   const w = 160, h = 40, pad = 3;
   const min = Math.min(...values), max = Math.max(...values), span = max - min || 1;

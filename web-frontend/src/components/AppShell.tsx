@@ -11,7 +11,7 @@ function Brand() {
   return (
     <span className="flex items-center gap-2.5">
       <span className="grid size-8 place-items-center rounded-[var(--radius-control)] bg-accent text-on-accent"><HeartPulse className="beat size-5" aria-hidden /></span>
-      <span className="title whitespace-nowrap text-lg">Crew Health</span>
+      <span className="brand-name title whitespace-nowrap text-lg">Crew Health</span>
     </span>
   );
 }
@@ -42,8 +42,8 @@ function SignIn() {
         <Brand />
         <div className="settle max-w-md">
           <p className="label mb-3">Onboard medical monitoring</p>
-          <p className="display text-5xl">Every heartbeat, <span className="text-accent">accounted for.</span></p>
-          <p className="mt-5 text-secondary">Live vitals from each crew member&rsquo;s watch, a daily check-in, and a medical agent that keeps working when Earth is out of reach.</p>
+          <p className="display text-5xl">Crew medical station</p>
+          <p className="mt-5 text-secondary">Vitals, assessments and treatment decisions.</p>
         </div>
         <ul className="grid gap-2 text-sm text-secondary">
           <li className="flex items-center gap-2"><ShieldCheck className="size-4 text-nominal" aria-hidden />Your record is private to you and your decider.</li>

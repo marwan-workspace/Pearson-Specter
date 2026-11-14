@@ -8,7 +8,7 @@ import { useNow } from '@/lib/hooks';
 import { useTelemetryEngine } from '@/lib/useTelemetry';
 import { useRecord } from '@/lib/useRecord';
 import { isStale, timeAgo, words } from '@/lib/format';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, Decision } from '@/lib/types';
 import { AgentChat } from './AgentChat';
 import { ASSESS_LABEL, TelemetryDeck, type AssessStage } from './telemetry/TelemetryDeck';
 import { ReticleIcon } from './telemetry/icons';
@@ -21,7 +21,7 @@ type AgentReply = { message: { text: string; at?: number }; completed?: boolean;
 export function RecordPage({ astronautKey }: { astronautKey: string }) {
   const { me } = useSession();
   const isSelf = me?.astronaut.callsign.toLowerCase() === astronautKey.toLowerCase();
-  const { records, related, error, reload } = useRecord(astronautKey, isSelf);
+  const { records, related, error, reload, resolveDecision } = useRecord(astronautKey, isSelf);
   const [tab, setTab] = useState<TabId>('vitals');
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -53,7 +53,8 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
   const act: Actions['act'] = useCallback(async (key, done, path, body = {}) => {
     setBusy(key);
     try {
-      await backendRequest(path, { method: 'POST', body: JSON.stringify(body) });
+      const result = await backendRequest<Decision>(path, { method: 'POST', body: JSON.stringify(body) });
+      if (path.startsWith('/decisions/')) resolveDecision(result);
       setNotice({ tone: 'nominal', text: done });
       await reload();
       return true;
@@ -61,7 +62,7 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
       setNotice({ tone: 'critical', text: e instanceof Error ? e.message : 'That did not work.' });
       return false;
     } finally { setBusy(null); }
-  }, [reload]);
+  }, [reload, resolveDecision]);
 
   /** Run assessment: the 3D scan sweeps while the real request runs; the button names each stage. */
   async function runAssessment() {
@@ -73,7 +74,10 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
     setStage((s) => (s === 'scanning' ? 'evaluating' : s));
     const ok = await request;
     setStage(ok ? 'saved' : 'idle');
-    if (ok) setTimeout(() => setStage('idle'), 3500);
+    if (ok) {
+      chooseTab('wellbeing');
+      setTimeout(() => setStage('idle'), 3500);
+    }
   }
 
   async function send(kind: 'chat' | 'checkin', text: string) {

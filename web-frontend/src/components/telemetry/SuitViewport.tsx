@@ -84,23 +84,23 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     controls.maxPolarAngle = Math.PI * 0.56;
     controls.autoRotateSpeed = 0.9;
 
-    const key = new THREE.DirectionalLight(0xdff6ff, 2.2);
+    const key = new THREE.DirectionalLight(0xe2e8f0, 2.2);
     key.position.set(2.5, 4, 3);
-    const rim = new THREE.DirectionalLight(0x3b82f6, 2.4);
+    const rim = new THREE.DirectionalLight(0xf59e0b, 2.4);
     rim.position.set(-3, 2.5, -3);
-    scene.add(key, rim, new THREE.AmbientLight(0x8fb4d9, 0.35));
+    scene.add(key, rim, new THREE.AmbientLight(0xe2e8f0, 0.35));
 
     // ── materials: one shell material per zone, so each zone can glow on its own ──
     const css = getComputedStyle(document.documentElement);
     const token = (name: string) => new THREE.Color(css.getPropertyValue(name).trim() || '#ffffff');
     const STATUS: Record<ZoneStatus, THREE.Color> = { nominal: token('--status-nominal'), warning: token('--status-warning'), critical: token('--status-critical'), fault: token('--status-fault') };
-    const CYAN = token('--accent-cyan'), COBALT = token('--accent-cobalt'), VIOLET = token('--accent-violet');
+    const AMBER = token('--accent-primary'), PLATINUM = token('--accent-secondary'), VIOLET = token('--accent-violet');
     const shell = {} as Record<ZoneId, THREE.MeshStandardMaterial>;
     for (const z of ZONES) shell[z.id] = new THREE.MeshStandardMaterial({ color: 0xe9eef4, roughness: 0.5, metalness: 0.08, emissive: STATUS.nominal, emissiveIntensity: 0.05 });
-    const joint = new THREE.MeshStandardMaterial({ color: 0x1a2536, roughness: 0.65, metalness: 0.35 });
-    const metal = new THREE.MeshStandardMaterial({ color: 0x9fb0c4, roughness: 0.25, metalness: 0.9 });
-    const visor = new THREE.MeshStandardMaterial({ color: 0xd9a23a, roughness: 0.06, metalness: 1, emissive: CYAN, emissiveIntensity: 0.12 });
-    const glow = new THREE.MeshStandardMaterial({ color: 0x06121c, emissive: CYAN, emissiveIntensity: 1.6, roughness: 0.4 });
+    const joint = new THREE.MeshStandardMaterial({ color: 0x161922, roughness: 0.65, metalness: 0.35 });
+    const metal = new THREE.MeshStandardMaterial({ color: 0xa1a1aa, roughness: 0.25, metalness: 0.9 });
+    const visor = new THREE.MeshStandardMaterial({ color: 0xd9a23a, roughness: 0.06, metalness: 1, emissive: AMBER, emissiveIntensity: 0.12 });
+    const glow = new THREE.MeshStandardMaterial({ color: 0x0f1117, emissive: AMBER, emissiveIntensity: 1.6, roughness: 0.4 });
     const translucent = [...Object.values(shell), joint, metal, visor, glow];
 
     const suit = new THREE.Group();
@@ -186,7 +186,7 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     heart.position.set(0.035, 1.44, 0.07);
     heart.rotation.z = -0.3;
     inner.add(heart);
-    const lungMat = new THREE.MeshStandardMaterial({ color: 0x0b3d52, emissive: CYAN, emissiveIntensity: 0.55, transparent: true, opacity: 0.55, roughness: 0.6 });
+    const lungMat = new THREE.MeshStandardMaterial({ color: 0x4a3520, emissive: AMBER, emissiveIntensity: 0.55, transparent: true, opacity: 0.55, roughness: 0.6 });
     const lungs = [-1, 1].map((side) => {
       const lung = new THREE.Mesh(sphere(0.1), lungMat);
       lung.position.set(side * 0.115, 1.47, 0);
@@ -198,7 +198,7 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     const neural = new THREE.Mesh(new THREE.IcosahedronGeometry(0.085, 1), neuralMat);
     neural.position.set(0, 1.86, 0);
     inner.add(neural);
-    const arteryMat = new THREE.MeshStandardMaterial({ color: 0x0c1f4d, emissive: COBALT, emissiveIntensity: 0.9 });
+    const arteryMat = new THREE.MeshStandardMaterial({ color: 0x34343b, emissive: PLATINUM, emissiveIntensity: 0.9 });
     const pulseMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const core: [number, number, number] = [0.02, 1.44, 0.05];
     const arteries = ([
@@ -218,7 +218,7 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     // ── orbital radar floor ──
     const floor = new THREE.Group();
     scene.add(floor);
-    const lineMat = new THREE.LineBasicMaterial({ color: CYAN, transparent: true, opacity: 0.32 });
+    const lineMat = new THREE.LineBasicMaterial({ color: AMBER, transparent: true, opacity: 0.32 });
     for (const r of [0.45, 0.8, 1.15, 1.5]) {
       const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(new THREE.Path().absarc(0, 0, r, 0, Math.PI * 2).getPoints(96)), lineMat);
       ring.rotation.x = -Math.PI / 2;
@@ -227,7 +227,7 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     const spokes: number[] = [];
     for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; spokes.push(Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45, Math.cos(a) * 1.5, 0, Math.sin(a) * 1.5); }
     floor.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(spokes, 3)), lineMat));
-    const sweep = new THREE.Mesh(new THREE.CircleGeometry(1.5, 32, 0, 0.6), new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false }));
+    const sweep = new THREE.Mesh(new THREE.CircleGeometry(1.5, 32, 0, 0.6), new THREE.MeshBasicMaterial({ color: AMBER, transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false }));
     sweep.rotation.x = -Math.PI / 2;
     sweep.position.y = 0.002;
     floor.add(sweep);
@@ -245,10 +245,10 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     const pVel = new Float32Array(PARTICLES * 3);
     const pLife = new Float32Array(PARTICLES);
     const pGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-    const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xcffaff, size: 0.022, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
+    const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xe2e8f0, size: 0.022, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
     points.frustumCulled = false;
     suit.add(points);
-    const scan = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.85, 64), new THREE.MeshBasicMaterial({ color: CYAN, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+    const scan = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.85, 64), new THREE.MeshBasicMaterial({ color: AMBER, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
     scan.rotation.x = -Math.PI / 2;
     scan.visible = false;
     scene.add(scan);
@@ -378,7 +378,7 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
           ring.lookAt(camera.position);
         }
       }
-      (watchSensor.material as THREE.MeshStandardMaterial).emissive.copy(s.sensorFault ? STATUS.fault : CYAN);
+      (watchSensor.material as THREE.MeshStandardMaterial).emissive.copy(s.sensorFault ? STATUS.fault : AMBER);
       (watchSensor.material as THREE.MeshStandardMaterial).emissiveIntensity = s.sensorFault ? 0.4 + 2 * Math.random() : 1.2 + 0.6 * Math.exp(-((heartPhase - 0.1) ** 2) / 0.004);
       beaconTip.scale.setScalar(1 + 0.6 * Math.max(0, Math.sin(t * 3)));
 

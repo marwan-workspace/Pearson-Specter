@@ -16,6 +16,8 @@ npm start
 
 Python workers use the repository virtual environment by default. Set `PYTHON_BIN` if the Python executable is elsewhere. Set `WATCH_ENABLED=false` to disable the watch loop or `WATCH_TICK_MS` to change its interval.
 
+On Windows, if `.venv` was created under Linux/WSL, create a separate environment with `py -m venv .venv-windows`, then run `.venv-windows\Scripts\python.exe -m pip install -r requirements.txt` from the repository root. The backend detects this environment automatically.
+
 ## API surface
 
 - `POST /backend/auth/login`, `POST /backend/auth/logout`, `GET /backend/me`

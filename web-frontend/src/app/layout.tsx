@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [{ media: '(prefers-color-scheme: dark)', color: '#091426' }, { media: '(prefers-color-scheme: light)', color: '#eef2f7' }],
+  themeColor: [{ media: '(prefers-color-scheme: dark)', color: '#07080B' }, { media: '(prefers-color-scheme: light)', color: '#eef2f7' }],
 };
 
 // Runs before first paint so a remembered light theme never flashes dark. Dark is the default.

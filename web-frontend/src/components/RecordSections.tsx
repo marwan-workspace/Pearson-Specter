@@ -30,7 +30,7 @@ function VitalTile({ label, icon: Icon, value, unit, series, color, i, digits = 
     <div className="panel lift settle min-w-0 p-4" style={{ '--i': i } as CSSProperties}>
       <dt className="label flex items-center gap-1.5"><Icon className={`size-4 ${motion}`} style={{ color }} aria-hidden />{label}</dt>
       <dd className="mt-1">
-        <span className="num display glow-cyan text-2xl sm:text-3xl">{value}</span><span className="label ml-1">{unit}</span>
+        <span className="num display glow-accent text-2xl sm:text-3xl">{value}</span><span className="label ml-1">{unit}</span>
         <Sparkline values={series} color={color} />
         <span className="label block">Range {range} over the last {series.length} readings</span>
       </dd>

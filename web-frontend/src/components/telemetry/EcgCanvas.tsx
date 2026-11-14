@@ -96,7 +96,7 @@ export function EcgCanvas({ engine }: { engine: TelemetryEngine }) {
       // advance in small steps so the R spike is never skipped at high speed
       const steps = Math.max(1, Math.ceil((dt * SWEEP_PX_PER_S) / 1.5));
       const ecgMid = h * 0.36, ecgGain = h * 0.26, plethBase = h * 0.93, plethGain = h * 0.2;
-      const ecgColor = fault ? color('--status-fault') : hypoxic ? color('--status-critical') : color('--accent-cyan');
+      const ecgColor = fault ? color('--status-fault') : hypoxic ? color('--status-critical') : color('--accent-primary');
       for (let i = 0; i < steps; i++) {
         const step = dt / steps;
         sinceR += step;
@@ -113,7 +113,7 @@ export function EcgCanvas({ engine }: { engine: TelemetryEngine }) {
           ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
           ctx.shadowBlur = 10; ctx.shadowColor = ecgColor; ctx.strokeStyle = ecgColor;
           ctx.beginPath(); ctx.moveTo(x, prevEcgY); ctx.lineTo(nx, ecgY); ctx.stroke();
-          const plethColor = color('--accent-cobalt');
+          const plethColor = color('--accent-secondary');
           ctx.shadowColor = plethColor; ctx.strokeStyle = plethColor;
           ctx.beginPath(); ctx.moveTo(x, prevPlethY); ctx.lineTo(nx, plethY); ctx.stroke();
           ctx.shadowBlur = 0;

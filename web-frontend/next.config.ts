@@ -1,10 +1,16 @@
 import type { NextConfig } from 'next';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
   // the telemetry engine imports ../watch/rules.json and baselines.json, the same files the Python watch reads
-  experimental: { externalDir: true },
+  // The report worker can run for 65 seconds, plus remote database reads and writes.
+  experimental: { externalDir: true, proxyTimeout: 120_000 },
+  turbopack: { root: repoRoot },
   transpilePackages: ['three'],
   async rewrites() {
     const backend = (process.env.BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '');

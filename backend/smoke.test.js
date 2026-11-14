@@ -44,6 +44,23 @@ test('a decision can be resolved only once', { skip: !URL && 'set DATABASE_URL_T
   assert.equal((await call(`/decisions/${pending.id}`, { cookie, body: { action: 'reject' } })).status, 409);
 });
 
+test('plan approval persists a valid item status and approves the parent plan', { skip: !URL && 'set DATABASE_URL_TEST' }, async () => {
+  const db = new pg.Pool({ connectionString: URL });
+  try {
+    const subject = (await db.query("SELECT id FROM astronauts WHERE callsign='KWAME'")).rows[0].id;
+    const plan = (await db.query("INSERT INTO treatment_plans(astronaut_id,created_by,urgency,status) VALUES($1,'manager_agent','routine','awaiting_approval') RETURNING id", [subject])).rows[0];
+    const item = (await db.query("INSERT INTO treatment_plan_items(treatment_plan_id,position,action_type,description) VALUES($1,0,'monitoring','Review the next watch reading') RETURNING id", [plan.id])).rows[0];
+    const decision = (await db.query("INSERT INTO decisions(astronaut_id,decision_type,actor,evidence,outcome) VALUES($1,'plan_approval','manager_agent',$2,'proposed') RETURNING id", [subject, JSON.stringify({ treatmentPlanId: plan.id, treatmentPlanItemId: item.id })])).rows[0];
+    const { cookie } = await login('elena');
+    const approved = await call(`/decisions/${decision.id}`, { cookie, body: { action: 'approve' } });
+    assert.equal(approved.status, 200);
+    assert.equal(approved.data.outcome, 'accepted');
+    const saved = (await db.query('SELECT p.status AS plan_status,i.status AS item_status,d.outcome FROM treatment_plans p JOIN treatment_plan_items i ON i.treatment_plan_id=p.id JOIN decisions d ON d.id=$2 WHERE p.id=$1', [plan.id, decision.id])).rows[0];
+    assert.deepEqual(saved, { plan_status: 'approved', item_status: 'planned', outcome: 'accepted' });
+    assert.equal((await call(`/decisions/${decision.id}`, { cookie, body: { action: 'approve' } })).status, 409);
+  } finally { await db.end(); }
+});
+
 test('five wrong PINs lock an account until the leader unlocks it', { skip: !URL && 'set DATABASE_URL_TEST' }, async () => {
   for (let i = 1; i <= 5; i++) assert.equal((await login('hiro', '0000')).status, i < 5 ? 401 : 423);
   assert.equal((await login('hiro')).status, 423, 'the right PIN does not open a locked account');

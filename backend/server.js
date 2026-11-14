@@ -1,5 +1,6 @@
 import './env.js';
 import http from 'node:http';
+import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -14,8 +15,9 @@ const ROOT = path.resolve(HERE, '..');
 const PORT = Number(process.env.PORT || 8000);
 const COOKIE = 'crew_session';
 const SESSION_MS = 12 * 60 * 60 * 1000;
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 12, idleTimeoutMillis: 30_000 });
-const watchPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2, idleTimeoutMillis: 30_000 });
+// Leave headroom in the hosted session pool for other clients and maintenance.
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, application_name: 'crew-api' });
+const watchPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, application_name: 'crew-watch' });
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const sha256 = (v) => createHash('sha256').update(v).digest('hex');
@@ -42,7 +44,10 @@ const pinMatches = async (pin, encoded) => {
   return got.length === exp.length && timingSafeEqual(got, exp);
 };
 const runPython = (args, input, timeoutMs = 65_000) => new Promise((resolve, reject) => {
-  const bin = process.env.PYTHON_BIN || (process.platform === 'win32' ? path.join(ROOT, '.venv', 'Scripts', 'python.exe') : path.join(ROOT, '.venv', 'bin', 'python'));
+  const candidates = process.platform === 'win32'
+    ? [path.join(ROOT, '.venv', 'Scripts', 'python.exe'), path.join(ROOT, '.venv-windows', 'Scripts', 'python.exe')]
+    : [path.join(ROOT, '.venv', 'bin', 'python')];
+  const bin = process.env.PYTHON_BIN || candidates.find(existsSync) || candidates[0];
   const child = spawn(bin, args, { cwd: ROOT, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
   const timer = setTimeout(() => { child.kill(); reject(new HttpError(504, 'Python worker timed out.')); }, timeoutMs);
@@ -218,7 +223,7 @@ async function route(req, res, url) {
         if(!dose.rowCount) throw new HttpError(409,'The dose is no longer waiting for a decision.');
       }
       if(decision.decision_type==='plan_approval') {
-        const evidence=decision.evidence||{}; const newStatus=body.action==='approve'?'active':'skipped';
+        const evidence=decision.evidence||{}; const newStatus=body.action==='approve'?'planned':'skipped';
         if(evidence.treatmentPlanItemId) await c.query('UPDATE treatment_plan_items SET status=$2 WHERE id=$1',[evidence.treatmentPlanItemId,newStatus]);
         if(evidence.treatmentPlanId) {
           const anyPending=await c.query("SELECT 1 FROM decisions WHERE outcome='proposed' AND evidence->>'treatmentPlanId'=$1 LIMIT 1",[evidence.treatmentPlanId]);
@@ -373,6 +378,13 @@ const vitalSummary=async(c,id,bucket,from,to)=>(await c.query(`SELECT date_trunc
     count(*) FILTER (WHERE sensor_status<>'ok')::int AS sensor_problems
   FROM vital_samples WHERE astronaut_id=$1 AND observed_at>=$3::timestamptz AND observed_at<$4::timestamptz GROUP BY 1 ORDER BY 1`,[id,bucket,from,to])).rows;
 
+// A transaction has one pg client; concurrent query calls are deprecated and still execute serially.
+async function queryInOrder(tasks) {
+  const results=[];
+  for(const task of tasks) results.push(await task());
+  return results;
+}
+
 async function runAgent(c, command, body) {
   const astr=body.astronautId ? await resolveAstronaut(c,body.astronautId) : '';
   if(command==='weekly') {
@@ -382,14 +394,14 @@ async function runAgent(c, command, body) {
     if(![start,end].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||start>end) throw new HttpError(400,'periodStart and periodEnd must be dates (YYYY-MM-DD), start first.');
     const astronauts=[]; const dayAfterEnd=new Date(Date.parse(end)+864e5).toISOString().slice(0,10);
     for(const m of members) {
-      const [checkins,vitals,sleep,events,decisions,medications,plans]=await Promise.all([
-        c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 AND check_in_date BETWEEN $2 AND $3',[m.id,start,end]),
-        vitalSummary(c,m.id,'day',start,dayAfterEnd),
-        c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
-        c.query('SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
-        c.query('SELECT * FROM decisions WHERE astronaut_id=$1 AND decided_at >= $2::date AND decided_at < ($3::date + 1)',[m.id,start,end]),
-        c.query('SELECT * FROM medication_events WHERE astronaut_id=$1 AND proposed_at >= $2::date AND proposed_at < ($3::date + 1)',[m.id,start,end]),
-        c.query(`SELECT p.*,COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.position) FILTER(WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
+      const [checkins,vitals,sleep,events,decisions,medications,plans]=await queryInOrder([
+        () => c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 AND check_in_date BETWEEN $2 AND $3',[m.id,start,end]),
+        () => vitalSummary(c,m.id,'day',start,dayAfterEnd),
+        () => c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
+        () => c.query('SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
+        () => c.query('SELECT * FROM decisions WHERE astronaut_id=$1 AND decided_at >= $2::date AND decided_at < ($3::date + 1)',[m.id,start,end]),
+        () => c.query('SELECT * FROM medication_events WHERE astronaut_id=$1 AND proposed_at >= $2::date AND proposed_at < ($3::date + 1)',[m.id,start,end]),
+        () => c.query(`SELECT p.*,COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.position) FILTER(WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
           FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
           WHERE p.astronaut_id=$1 AND p.created_at >= $2::date AND p.created_at < ($3::date + 1) GROUP BY p.id`,[m.id,start,end]),
       ]);
@@ -406,12 +418,12 @@ async function runAgent(c, command, body) {
   if(!astr) throw new HttpError(400,'astronautId is required.'); await assertVisible(c,astr);
   if(command!=='assess' && astr!==c.astronaut.id) throw new HttpError(403,'This agent action is available only for your own astronaut account.');
   if(command==='assess') {
-    const [vital,sleep,mental,checks,events]=await Promise.all([
-      vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString()),
-      c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 ORDER BY started_at DESC LIMIT 7',[astr]),
-      c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1',[astr]),
-      c.query('SELECT * FROM check_in_answers WHERE check_in_id=(SELECT id FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1)',[astr]),
-      c.query("SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at>now()-interval '24 hours' ORDER BY started_at DESC",[astr]),
+    const [vital,sleep,mental,checks,events]=await queryInOrder([
+      () => vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString()),
+      () => c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 ORDER BY started_at DESC LIMIT 7',[astr]),
+      () => c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1',[astr]),
+      () => c.query('SELECT * FROM check_in_answers WHERE check_in_id=(SELECT id FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1)',[astr]),
+      () => c.query("SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at>now()-interval '24 hours' ORDER BY started_at DESC",[astr]),
     ]);
     const day={astronautId:astr,date:body.date||new Date().toISOString().slice(0,10),vitals24h:vital,sleep:sleep.rows,
       mental:mental.rows[0]?{score:mental.rows[0].mental_health_score}:null,checkIn:{record:mental.rows[0]||null,answers:checks.rows},watchEvents:events.rows};
@@ -422,7 +434,7 @@ async function runAgent(c, command, body) {
     const plan=(await c.query(`INSERT INTO treatment_plans(astronaut_id,health_assessment_id,created_by,urgency,status,rationale)
       VALUES($1,$2,'manager_agent',$3,$4,$5) RETURNING id`,[astr,assessment.id,data.urgency,planStatus,data.rootCause.problem])).rows[0];
     for(let i=0;i<data.plan.length;i++) {
-      const p=data.plan[i]; const status=p.approval==='not-required'?'active':'planned';
+      const p=data.plan[i]; const status=p.approval==='not-required'?'in_progress':'planned';
       const item=(await c.query(`INSERT INTO treatment_plan_items(treatment_plan_id,position,action_type,description,status) VALUES($1,$2,$3,$4,$5) RETURNING id`,[plan.id,i,p.kind,p.text,status])).rows[0];
       if(p.approval!=='not-required') await c.query(`INSERT INTO decisions(astronaut_id,decision_type,actor,rationale,evidence,proposed_action,outcome)
         VALUES($1,'plan_approval','manager_agent',$2,$3::jsonb,$4,'proposed')`,[astr,p.text,JSON.stringify({treatmentPlanId:plan.id,treatmentPlanItemId:item.id}),p.text]);
