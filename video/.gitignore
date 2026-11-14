@@ -1,0 +1,11 @@
+node_modules/
+work/
+out/
+reel/fonts/
+voice-samples/
+NEW_SESSION_PROMPT.md
+build/*.wav
+build/*.filter.txt
+build/__pycache__/
+clips/02-vitacuff.mp4
+voiceover/
