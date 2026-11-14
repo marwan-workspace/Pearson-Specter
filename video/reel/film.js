@@ -46,8 +46,9 @@ function load(url) {
   return p;
 }
 const pad = (n) => String(n).padStart(4, '0');
-const vcUrl = (t) => `../work/vc/f${pad(clamp(Math.floor(t * 30), 0, 299))}.jpg`;
-const closeUrl = (t) => `../work/close/f${pad(clamp(Math.floor((t - 34) * 30), 0, 137))}.jpg`;
+const VC = () => M.CFG.vcDir || '../work';  // film.json "vcDir" swaps in another VitaCuff capture (e.g. ../work/v2m)
+const vcUrl = (t) => `${VC()}/vc/f${pad(clamp(Math.floor(t * 30), 0, 299))}.jpg`;
+const closeUrl = (t) => `${VC()}/close/f${pad(clamp(Math.floor((t - 34) * 30), 0, 137))}.jpg`;
 function castUrl(ts) {  // last screencast frame painted at or before capture time ts
   let lo = 0, hi = cast.length - 1;
   while (lo < hi) { const m = (lo + hi + 1) >> 1; if (cast[m][1] <= ts) lo = m; else hi = m - 1; }

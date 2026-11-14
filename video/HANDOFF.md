@@ -62,3 +62,6 @@ Dashboard: backend `cd backend && npm start` (port 8000), frontend `cd web-front
 - Keys only on the opening title; after it they are a whisper (problem 0.05, reel x0.12).
 - Minimal ECG over the hook black screen (`ecg/` film, spikes on the beat times `clip_hook.py` writes to `work/hook_beats.json`). Render it, then `ffmpeg -i clips/00-hook.mp4 -i out/ecg/video_16x9.mp4 -filter_complex "[0:v][1:v]blend=all_mode=lighten,format=yuv420p[v]" -map "[v]" -map 0:a -c:a copy work/hook_ecg.mp4` before `assemble.py`.
 - Booms under spoken words are pure subs now (no noise burst): the title hit cracked the voice at 0:32. Score ducks under the voice.
+
+## Update 3: new cuff
+The final now uses the vitacuff-v2 cuff: `build/vc_capture_v2model.py ../work/v2m`, and `reel/film.json` "vcDir": "../work/v2m" (remove it to go back to the old cuff in `work/vc`).

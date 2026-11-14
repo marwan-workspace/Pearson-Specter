@@ -4,5 +4,6 @@
  "formats": [
   "16x9"
  ],
- "poster": 36.0
+ "poster": 36.0,
+ "vcDir": "../work/v2m"
 }
