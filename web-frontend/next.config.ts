@@ -19,7 +19,11 @@ const nextConfig: NextConfig = {
   // the wrist-unit page ships a large 3D model and three.js: let the browser keep it for a day
   // instead of re-downloading on every visit (Next's default for public/ is max-age=0).
   async headers() {
-    return [{ source: '/vitacuff/:path*', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] }];
+    return [
+      { source: '/vitacuff/:path*', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] },
+      // the page and its own code change with the design, so the browser re-checks them (a cheap 304 when unchanged)
+      { source: '/vitacuff/:file(index.html|main.js|style.css)', headers: [{ key: 'Cache-Control', value: 'no-cache' }] },
+    ];
   },
 };
 

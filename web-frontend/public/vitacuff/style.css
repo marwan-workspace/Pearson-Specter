@@ -38,7 +38,6 @@ body {
 
 main { position: relative; z-index: 1; pointer-events: none; }
 section { min-height: 160vh; padding: 0 clamp(1rem, 6vw, 5rem); display: flex; }
-section.tall { min-height: 240vh; }
 /* scrim on the text side so words stay readable over a white suit */
 section { background: linear-gradient(to right, rgba(5, 10, 28, .9) 22%, rgba(5, 10, 28, 0) 58%); }
 section[data-side="right"] { justify-content: flex-end; background: linear-gradient(to left, rgba(5, 10, 28, .9) 22%, rgba(5, 10, 28, 0) 58%); }
