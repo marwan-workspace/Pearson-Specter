@@ -1,0 +1,99 @@
+:root {
+  --space: #0a1433;      /* deep orbital blue, not black */
+  --space-deep: #050a1c;
+  --khaki: #c9b88a;      /* the device body */
+  --paper: #f3efe4;
+  --nasa-blue: #0b3d91;
+  --nasa-red: #fc3d21;
+  --phosphor: #7dffa6;   /* only ever used for things the screen says */
+  --display: "Bahnschrift", "DIN Alternate", "Roboto Condensed", "Arial Narrow", sans-serif;
+  --body: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: radial-gradient(120% 90% at 70% 30%, #16245a 0%, var(--space) 45%, var(--space-deep) 100%) fixed;
+  color: var(--paper);
+  font: 1.0625rem/1.55 var(--body);
+}
+
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; transition: opacity .18s linear; }
+
+.bar {
+  position: fixed; z-index: 2; top: 0; left: 0;
+  display: flex; align-items: center; gap: .75rem;
+  padding: 1rem clamp(1rem, 4vw, 3rem);
+}
+.bar p { margin: 0; display: grid; line-height: 1.2; }
+.bar strong { font: 600 1.25rem var(--display); letter-spacing: .02em; }
+.bar span { font-size: .8125rem; opacity: .75; }
+
+#loader {
+  position: fixed; z-index: 2; right: clamp(1rem, 4vw, 3rem); top: 1.5rem; margin: 0;
+  font: 500 .875rem var(--display); color: var(--khaki);
+}
+#loader[hidden] { display: none; }
+
+main { position: relative; z-index: 1; pointer-events: none; }
+section { min-height: 160vh; padding: 0 clamp(1rem, 6vw, 5rem); display: flex; }
+/* scrim on the text side so words stay readable over a white suit */
+section { background: linear-gradient(to right, rgba(5, 10, 28, .9) 22%, rgba(5, 10, 28, 0) 58%); }
+section[data-side="right"] { justify-content: flex-end; background: linear-gradient(to left, rgba(5, 10, 28, .9) 22%, rgba(5, 10, 28, 0) 58%); }
+
+.panel {
+  pointer-events: auto;
+  position: sticky; top: 0; align-self: flex-start;
+  width: min(27rem, 100%);
+  padding-top: clamp(7rem, 26vh, 15rem);
+  padding-bottom: 3rem;
+  text-shadow: 0 1px 12px rgba(5, 10, 28, .9);
+}
+h1, h2 {
+  font-family: var(--display); font-weight: 600; font-stretch: 85%;
+  line-height: 1.04; letter-spacing: -.005em; margin: 0 0 1.25rem; text-wrap: balance;
+}
+h1 { font-size: clamp(2.5rem, 5.4vw, 4.5rem); }
+h2 { font-size: clamp(2rem, 3.8vw, 3.25rem); }
+.panel p { margin: 0 0 1rem; max-width: 34em; }
+.hint { color: var(--khaki); font-size: .9375rem; }
+
+.vitals { margin: 1.5rem 0 0; display: grid; gap: .5rem; }
+.vitals div { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1rem; padding: .5rem 0; border-top: 1px solid rgba(201, 184, 138, .35); }
+.vitals dt { font: 600 1rem var(--display); color: var(--khaki); }
+.vitals dd { margin: 0; }
+
+ol { margin: 0 0 1rem; padding: 0; list-style: none; counter-reset: step; display: grid; gap: .75rem; }
+ol li { counter-increment: step; display: grid; grid-template-columns: 2.25rem 1fr; align-items: baseline; }
+ol li::before { content: counter(step); font: 600 1.5rem var(--display); color: var(--khaki); }
+
+footer {
+  position: relative; z-index: 1;
+  padding: 2.5rem clamp(1rem, 6vw, 5rem) 3rem;
+  background: var(--space-deep); font-size: .875rem; color: #b9c0d6;
+}
+footer p { margin: 0 0 .5rem; max-width: 60em; }
+
+.fallback {
+  position: relative; z-index: 3; margin: 6rem auto; max-width: 30rem; padding: 1.5rem;
+  background: var(--nasa-blue); border-radius: 6px;
+}
+
+:focus-visible { outline: 3px solid var(--khaki); outline-offset: 3px; }
+
+@media (max-width: 900px) {
+  /* model on top, words on a scrim at the bottom */
+  section, section[data-side="right"] { justify-content: stretch; padding: 0; background: none; }
+  .panel {
+    width: 100%; top: auto; bottom: 0; align-self: flex-end;
+    padding: 5rem 1.25rem 1.5rem;
+    background: linear-gradient(to top, rgba(5, 10, 28, .94) 62%, rgba(5, 10, 28, 0));
+  }
+  .vitals div { grid-template-columns: 8rem 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  #scene { transition: none; }
+}

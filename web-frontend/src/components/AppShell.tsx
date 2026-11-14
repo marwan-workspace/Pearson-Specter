@@ -137,6 +137,12 @@ function Shell({ children }: { children: ReactNode }) {
               <span className="hidden sm:inline">Wrist unit 3D</span>
               <span className="sr-only sm:hidden">Open the wrist unit 3D walkthrough</span>
             </a>
+            {/* version 2: the sleeve redesign, a static page in public/vitacuff-v2 */}
+            <a href="/vitacuff-v2/index.html" target="_blank" rel="noopener" className="btn btn-quiet px-3" title="Open the 3D walkthrough of the VitaCuff v2 wrist sleeve in a new tab">
+              <Watch className="size-4" aria-hidden />
+              <span className="hidden sm:inline">Wrist unit 3D v2</span>
+              <span className="sr-only sm:hidden">Open the wrist unit 3D walkthrough, version 2</span>
+            </a>
             <ThemeToggle />
             <button className="btn btn-quiet px-3" disabled={leaving} aria-label="Sign out"
               onClick={async () => { setLeaving(true); try { await logout(); } finally { setLeaving(false); } }}>

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -32,6 +33,20 @@ const ao = new GTAOPass(scene, camera, 1, 1);
 composer.addPass(ao);
 composer.addPass(new OutputPass());
 
+// fine woven / cast-metal surface grain, faded out with distance so it never shimmers
+function grain(mat, scale, amount) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGrainP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGrainP = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vGrainP;')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        { vec3 q = vGrainP * ${scale.toFixed(1)};
+          vec3 w = vec3(sin(q.y) * cos(q.z), sin(q.z) * cos(q.x), sin(q.x) * cos(q.y));
+          normal = normalize(normal + ${amount.toFixed(3)} * (1.0 - smoothstep(0.4, 1.4, length(fwidth(q)))) * w); }`);
+  };
+  mat.customProgramCacheKey = () => `grain${scale}_${amount}`;
+  return mat;
+}
 // one shadow-casting light aimed at a stage
 function keyLight(root, color, intensity, dir, reach, centerY) {
   const l = new THREE.DirectionalLight(color, intensity);
@@ -48,7 +63,6 @@ const shadows = (o) => o.traverse((m) => { if (m.isMesh) m.castShadow = m.receiv
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 
 // ---------- device screen (shared live canvas texture) ----------
-// Laid out like the reference OLED: amber header, vitals column, ECG window, one card per syringe.
 const scr = document.createElement('canvas');
 scr.width = 1024; scr.height = 640;
 const sx = scr.getContext('2d');
@@ -59,225 +73,263 @@ const ecg = (u) => { // one heartbeat, u in 0..1
   const bump = (c, w, h) => h * Math.exp(-((u - c) ** 2) / w);
   return bump(0.18, 0.002, 0.12) - bump(0.36, 0.0003, 0.2) + bump(0.4, 0.0004, 1) - bump(0.44, 0.0004, 0.3) + bump(0.68, 0.005, 0.22);
 };
-const MONO = 'Consolas, "Courier New", monospace', SANS = '"Segoe UI", Arial, sans-serif';
-const SYRINGES = [
-  { code: 'SYR-01', name: 'Adenosine + Lidocaine', hex: '#10b981', color: 0x10b981 },
-  { code: 'SYR-02', name: 'Epinephrine + Norepi', hex: '#f59e0b', color: 0xf59e0b },
-  { code: 'SYR-03', name: 'Ketorolac Analgesic', hex: '#e2e8f0', color: 0xe2e8f0 },
-];
 function drawScreen(t, loaded) {
-  const W = 1024, ok = loaded === 3, status = ok ? '#10b981' : '#f59e0b';
-  sx.textBaseline = 'alphabetic'; sx.textAlign = 'left'; sx.setLineDash([]);
-  sx.fillStyle = '#05070b'; sx.fillRect(0, 0, W, 640);
-  // header
-  sx.fillStyle = 'rgba(245,158,11,0.13)'; sx.fillRect(24, 18, W - 48, 50);
-  sx.strokeStyle = 'rgba(245,158,11,0.6)'; sx.lineWidth = 2; sx.strokeRect(24, 18, W - 48, 50);
-  sx.fillStyle = '#f59e0b'; sx.font = `700 22px ${MONO}`; sx.fillText('VITACUFF  //  CLOSED-LOOP WRIST UNIT', 42, 51);
-  sx.fillStyle = status; sx.textAlign = 'right'; sx.fillText(ok ? '● NOMINAL' : '● LOAD SYRINGES', W - 42, 51); sx.textAlign = 'left';
-  // vitals column
+  const G = '#7dffa6', D = '#1f6b3c', mono = 'Consolas, monospace';
+  sx.fillStyle = '#020d07'; sx.fillRect(0, 0, 1024, 640);
+  sx.fillStyle = G; sx.strokeStyle = G; sx.textBaseline = 'top'; sx.textAlign = 'left';
+  sx.font = `600 34px ${mono}`;
+  sx.fillText('VITALS', 36, 28);
+  sx.fillStyle = D; sx.fillText('DOSE   LINK', 200, 28);
+  sx.textAlign = 'right'; sx.fillText('VITACUFF', 988, 28); sx.textAlign = 'left';
+  sx.fillRect(36, 82, 952, 3);
   const hr = Math.round(72 + 3 * Math.sin(t * 0.4) + Math.sin(t * 1.7));
-  sx.fillStyle = '#a1a1aa'; sx.font = `600 17px ${SANS}`; sx.fillText('HEART RATE & SpO2', 36, 104);
-  sx.fillStyle = '#f4f4f5'; sx.font = `700 84px ${MONO}`; sx.fillText(String(hr), 32, 182);
-  const hw = sx.measureText(String(hr)).width;
-  sx.fillStyle = '#10b981'; sx.font = `700 20px ${MONO}`; sx.fillText('BPM', 40 + hw, 182);
-  sx.fillStyle = '#f4f4f5'; sx.font = `700 52px ${MONO}`; sx.fillText('98%', 214, 182);
-  sx.fillStyle = 'rgba(255,255,255,0.05)'; sx.fillRect(34, 204, 300, 140);
-  sx.strokeStyle = 'rgba(255,255,255,0.14)'; sx.lineWidth = 1.5; sx.strokeRect(34, 204, 300, 140);
-  sx.fillStyle = '#f59e0b'; sx.font = `700 16px ${MONO}`; sx.fillText('VITALS', 50, 232);
-  sx.fillStyle = '#e2e8f0'; sx.font = `18px ${MONO}`;
-  sx.fillText('TEMP  : 36.7 °C', 50, 266); sx.fillText('BP    : 118/76 mmHg', 50, 296); sx.fillText('RESP  : 14 /min', 50, 326);
-  // ECG window
-  const bx = 354, by = 86, bw = 636, bh = 258;
-  sx.fillStyle = '#080a0f'; sx.fillRect(bx, by, bw, bh);
-  sx.strokeStyle = 'rgba(255,255,255,0.15)'; sx.strokeRect(bx, by, bw, bh);
-  sx.strokeStyle = 'rgba(255,255,255,0.05)'; sx.lineWidth = 1;
-  for (let x = bx + 53; x < bx + bw; x += 53) { sx.beginPath(); sx.moveTo(x, by); sx.lineTo(x, by + bh); sx.stroke(); }
-  for (let y = by + 43; y < by + bh; y += 43) { sx.beginPath(); sx.moveTo(bx, y); sx.lineTo(bx + bw, y); sx.stroke(); }
-  sx.fillStyle = '#a1a1aa'; sx.font = `600 14px ${MONO}`; sx.fillText('ECG  LEAD II', bx + 14, by + 24);
-  sx.strokeStyle = '#10b981'; sx.lineWidth = 3.5; sx.lineJoin = 'round'; sx.beginPath();
-  for (let x = 0; x <= bw - 8; x += 3) {
-    const y = by + bh * 0.66 - bh * 0.42 * ecg((x / 212 + t * 1.2) % 1);
-    x ? sx.lineTo(bx + 4 + x, y) : sx.moveTo(bx + 4 + x, y);
+  sx.fillStyle = G; sx.font = `700 150px ${mono}`;
+  sx.fillText(String(hr), 36, 100);
+  sx.font = `600 36px ${mono}`;
+  sx.fillText('BPM', 290, 192);
+  sx.fillText('SpO2  98%', 660, 112); sx.fillText('TEMP  36.7 C', 660, 162); sx.fillText('BP    118/76', 660, 212);
+  sx.lineWidth = 5; sx.lineJoin = 'round'; sx.beginPath();
+  for (let x = 0; x <= 952; x += 4) {
+    const y = 400 - 100 * ecg((x / 300 + t * 1.2) % 1);
+    x ? sx.lineTo(36 + x, y) : sx.moveTo(36 + x, y);
   }
   sx.stroke();
-  // one card per syringe
-  const cw = (W - 68 - 30) / 3;
-  SYRINGES.forEach((s, i) => {
-    const cx = 34 + i * (cw + 15), cy = 366, ch = 196, full = i < loaded;
-    sx.fillStyle = full ? 'rgba(18,21,30,0.95)' : 'rgba(10,12,16,0.95)'; sx.fillRect(cx, cy, cw, ch);
-    sx.strokeStyle = full ? s.hex : 'rgba(255,255,255,0.18)'; sx.lineWidth = full ? 2.5 : 1.5;
-    if (!full) sx.setLineDash([8, 6]);
-    sx.strokeRect(cx, cy, cw, ch); sx.setLineDash([]);
-    sx.fillStyle = full ? s.hex : '#52525b'; sx.font = `700 18px ${MONO}`; sx.fillText(`${s.code}  ${full ? '2.00' : '0.00'} mL`, cx + 16, cy + 36);
-    sx.fillStyle = full ? '#f4f4f5' : '#71717a'; sx.font = `600 17px ${SANS}`; sx.fillText(s.name, cx + 16, cy + 66);
-    sx.fillStyle = full ? '#a1a1aa' : '#f59e0b'; sx.font = `700 14px ${MONO}`; sx.fillText(full ? 'CHECK-VALVE SEALED' : 'EMPTY  -  INSERT', cx + 16, cy + 96);
-    sx.strokeStyle = '#71717a'; sx.lineWidth = 1.5; sx.strokeRect(cx + 16, cy + 120, cw - 32, 26);
-    if (full) { sx.fillStyle = s.hex; sx.fillRect(cx + 18, cy + 122, cw - 36, 22); }
-    sx.fillStyle = '#71717a'; sx.font = `600 13px ${MONO}`; sx.fillText(full ? 'BOLUS READY' : 'AWAITING ACCESS CARD', cx + 16, cy + 176);
-  });
-  // footer: next dose and how many are loaded
+  sx.fillRect(36, 484, 952, 3);
   const left = Math.max(0, 761 - Math.floor(t) % 762), mm = String(Math.floor(left / 60)).padStart(2, '0'), ss = String(left % 60).padStart(2, '0');
-  sx.fillStyle = '#f59e0b'; sx.font = `700 22px ${MONO}`; sx.fillText(ok ? `NEXT DOSE  00:${mm}:${ss}` : 'LOAD SYRINGES', 36, 612);
-  sx.fillStyle = status; sx.textAlign = 'right'; sx.fillText(`${loaded}/3 LOADED`, W - 36, 612); sx.textAlign = 'left';
+  sx.fillText(loaded ? `NEXT DOSE 00:${mm}:${ss}` : 'LOAD SYRINGES', 36, 520);
+  for (let i = 0; i < 3; i++) {
+    sx.lineWidth = 4; sx.strokeRect(640 + i * 84, 512, 64, 48);
+    if (i < loaded) sx.fillRect(650 + i * 84, 522, 44, 28);
+  }
+  sx.fillText(`${loaded}/3`, 900, 520);
   screenTex.needsUpdate = true;
 }
 
-// ---------- the wrist device ----------
-// A forged-carbon unit with a curved display, strapped to the wrist by two kevlar straps with titanium edges,
-// gold end trim, a hazard-amber manual pull-ring, and a bay of three prefilled syringes on the near side.
-// Its size is fixed; only the straps follow the arm, so it keeps its proportions on any wrist.
-const maxAniso = renderer.capabilities.getMaxAnisotropy();
-function canvasTex(w, h, draw, repeat) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  draw(c.getContext('2d'));
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = maxAniso;
-  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(...repeat); }
-  return t;
-}
-const carbonTex = canvasTex(1024, 1024, (g) => { // forged carbon: chopped strands at random angles
-  g.fillStyle = '#121419'; g.fillRect(0, 0, 1024, 1024);
-  for (let i = 0; i < 2600; i++) {
-    g.save(); g.translate(Math.random() * 1024, Math.random() * 1024); g.rotate(Math.random() * Math.PI);
-    const v = 20 + Math.floor(Math.random() * 46);
-    g.fillStyle = `rgb(${v},${v + 3},${v + 7})`; g.fillRect(-26, -6, 52, 12); g.restore();
-  }
-}, [22, 22]); // extrude UVs are in metres
-const kevlarTex = canvasTex(256, 256, (g) => { // basket-weave kevlar
-  g.fillStyle = '#0c0e13'; g.fillRect(0, 0, 256, 256);
-  for (let y = 0; y < 256; y += 8) for (let x = 0; x < 256; x += 8) { g.fillStyle = ((x + y) / 8) % 2 === 0 ? '#1b1f2a' : '#11141b'; g.fillRect(x, y, 7, 7); }
-}, [6, 8]);
-
-const M = {
-  kevlar: new THREE.MeshStandardMaterial({ map: kevlarTex, roughness: 0.85, metalness: 0.1, side: THREE.DoubleSide }),
-  carbon: new THREE.MeshPhysicalMaterial({ map: carbonTex, roughness: 0.42, metalness: 0.35, clearcoat: 1, clearcoatRoughness: 0.1 }),
-  titanium: new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.25, metalness: 0.95 }),
-  darkTi: new THREE.MeshStandardMaterial({ color: 0x1e222d, roughness: 0.32, metalness: 0.85 }),
-  gold: new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.28, metalness: 1 }),
-  steel: new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.1, metalness: 0.98 }),
-  amber: new THREE.MeshStandardMaterial({ color: 0xf5b40b, emissive: 0xf59e0b, emissiveIntensity: 0.25, roughness: 0.3, metalness: 0.7 }),
-  glass: new THREE.MeshPhysicalMaterial({ color: 0xf8fafc, transparent: true, opacity: 0.45, roughness: 0.05, metalness: 0.05, clearcoat: 1, depthWrite: false }),
-  stopper: new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.7 }),
-  manifold: new THREE.MeshPhysicalMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.34, roughness: 0.08, clearcoat: 1, depthWrite: false }),
-  trap: new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 0.9, transparent: true, opacity: 0.78 }),
-  // the display wins every depth tie with the shell under it, so it can never stripe
-  screen: new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-  cover: new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.06, roughness: 0.04, clearcoat: 1, depthWrite: false }),
+// ---------- NASA insignia as a crisp texture ----------
+const logoTex = new THREE.Texture();
+logoTex.colorSpace = THREE.SRGBColorSpace;
+const logoImg = new Image();
+logoImg.onload = () => {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 856;
+  c.getContext('2d').drawImage(logoImg, 0, 0, 1024, 856);
+  logoTex.image = c; logoTex.anisotropy = renderer.capabilities.getMaxAnisotropy(); logoTex.needsUpdate = true;
 };
+logoImg.src = 'assets/nasa-logo.svg';
 
-// Annular sector around the X axis (angles from +Y toward +Z), extruded along X: shells with real thickness.
-function arcSlab(r1, r2, a0, a1, len, bevel = 0, n = 192) {
-  const s = new THREE.Shape(), pt = (r, a) => [-r * Math.sin(a), r * Math.cos(a)];
-  s.moveTo(...pt(r2, a0));
-  for (let i = 1; i <= n; i++) s.lineTo(...pt(r2, a0 + ((a1 - a0) * i) / n));
-  for (let i = n; i >= 0; i--) s.lineTo(...pt(r1, a0 + ((a1 - a0) * i) / n));
-  const geo = new THREE.ExtrudeGeometry(s, { depth: len, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 4, curveSegments: 1 });
-  return geo.translate(0, 0, -len / 2).rotateY(Math.PI / 2);
+// ---------- 2K procedural surfaces: worn metal, woven strap, scratched glass ----------
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+const rnd = (a, b) => a + Math.random() * (b - a);
+function canvasPair(w, h) {
+  const mk = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  const a = mk(), b = mk();
+  return [a, a.getContext('2d'), b, b.getContext('2d')];
 }
-// Curved display surface, finely tessellated: u runs along +X, text "up" points to -Z (as the camera shots expect).
-function arcPatch(r, a0, a1, len, nx = 24, na = 160) {
-  const pos = [], uv = [], idx = [];
-  for (let j = 0; j <= na; j++) {
-    const a = a0 + ((a1 - a0) * j) / na;
-    for (let i = 0; i <= nx; i++) { pos.push(-len / 2 + (len * i) / nx, r * Math.cos(a), r * Math.sin(a)); uv.push(i / nx, 1 - j / na); }
+function speckle(ctx, w, h, amt) {
+  const d = ctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < d.data.length; i += 4) { const n = (Math.random() - 0.5) * amt; d.data[i] += n; d.data[i + 1] += n; d.data[i + 2] += n; }
+  ctx.putImageData(d, 0, 0);
+}
+// base: metal colour; rust: 0..1 how corroded. Returns a material with colour, roughness and bump maps.
+function wornMetal(base, rust) {
+  const S = 2048, [cc, c, rc, r] = canvasPair(S, S);
+  c.fillStyle = base; c.fillRect(0, 0, S, S);
+  r.fillStyle = '#6a6a6a'; r.fillRect(0, 0, S, S);
+  speckle(c, S, S, 14); speckle(r, S, S, 30);
+  // grime and corrosion gather toward the edges
+  for (let i = 0; i < 90 + rust * 500; i++) {
+    const edge = Math.random() < 0.7, x = edge ? (Math.random() < 0.5 ? rnd(0, S * 0.12) : rnd(S * 0.88, S)) : rnd(0, S), y = rnd(0, S), rad = rnd(8, 60 + rust * 90);
+    const [px, py] = Math.random() < 0.5 ? [x, y] : [y, x];
+    const g = c.createRadialGradient(px, py, 0, px, py, rad);
+    const brown = Math.random() < rust;
+    g.addColorStop(0, brown ? `rgba(${rnd(95, 135) | 0},${rnd(50, 70) | 0},25,${rnd(0.25, 0.6)})` : `rgba(8,8,9,${rnd(0.15, 0.4)})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g; c.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+    const g2 = r.createRadialGradient(px, py, 0, px, py, rad);
+    g2.addColorStop(0, 'rgba(235,235,235,.7)'); g2.addColorStop(1, 'rgba(0,0,0,0)');
+    r.fillStyle = g2; r.fillRect(px - rad, py - rad, rad * 2, rad * 2);
   }
-  for (let j = 0; j < na; j++) for (let i = 0; i < nx; i++) { const p = j * (nx + 1) + i, q = p + nx + 1; idx.push(p, q, p + 1, p + 1, q, q + 1); }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx); geo.computeVertexNormals();
-  return geo;
-}
-const xcyl = (r1, r2, len, seg = 32) => new THREE.CylinderGeometry(r1, r2, len, seg).rotateZ(-Math.PI / 2); // along X
-
-// A padded sleeve with rounded ends: a rounded-rectangle cross-section revolved around the X axis.
-function paddedSleeve(r1, r2, len, round) {
-  const pts = [], hl = len / 2;
-  for (const [cr, cy, a0] of [[r2 - round, hl - round, 0], [r1 + round, hl - round, Math.PI / 2], [r1 + round, -hl + round, Math.PI], [r2 - round, -hl + round, 1.5 * Math.PI]]) {
-    for (let i = 0; i <= 10; i++) { const a = a0 + (i / 10) * (Math.PI / 2); pts.push(new THREE.Vector2(cr + round * Math.cos(a), cy + round * Math.sin(a))); }
+  // scratches: bright bare metal, slightly shinier
+  for (let i = 0; i < 1400; i++) {
+    const x = rnd(0, S), y = rnd(0, S), a = rnd(0, Math.PI), len = rnd(6, 140) * (Math.random() < 0.08 ? 3 : 1);
+    for (const [ctx, col] of [[c, `rgba(205,210,215,${rnd(0.08, 0.45)})`], [r, `rgba(40,40,40,${rnd(0.2, 0.6)})`]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = rnd(0.6, 2.2);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); ctx.stroke();
+    }
   }
-  pts.push(pts[0].clone());
-  return new THREE.LatheGeometry(pts, 192).rotateZ(Math.PI / 2);
+  // worn-through paint along the borders
+  c.strokeStyle = 'rgba(175,180,185,.28)'; c.lineWidth = 10; c.strokeRect(3, 3, S - 6, S - 6);
+  const map = new THREE.CanvasTexture(cc), rough = new THREE.CanvasTexture(rc);
+  map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = rough.anisotropy = maxAniso;
+  return grain(new THREE.MeshStandardMaterial({ map, roughnessMap: rough, bumpMap: rough, bumpScale: 0.6, metalness: 0.7 - rust * 0.3, roughness: 0.95, envMapIntensity: 3 }), 9000, 0.08);
 }
+function wovenStrap() {
+  const W = 1024, H = 512, [cc, c, bc, b] = canvasPair(W, H);
+  c.fillStyle = '#3b414d'; c.fillRect(0, 0, W, H);
+  b.fillStyle = '#808080'; b.fillRect(0, 0, W, H);
+  for (let i = -H; i < W + H; i += 9) { // twill diagonals
+    for (const [ctx, lo, hi] of [[c, 'rgba(12,14,20,.55)', 'rgba(120,130,150,.22)'], [b, 'rgba(0,0,0,.7)', 'rgba(255,255,255,.7)']]) {
+      ctx.lineWidth = 3.2;
+      ctx.strokeStyle = lo; ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + H, H); ctx.stroke();
+      ctx.strokeStyle = hi; ctx.beginPath(); ctx.moveTo(i + 4.5, 0); ctx.lineTo(i + 4.5 + H, H); ctx.stroke();
+    }
+  }
+  for (let i = 0; i < 2600; i++) { c.fillStyle = `rgba(200,205,215,${rnd(0.03, 0.2)})`; c.fillRect(rnd(0, W), rnd(0, H), rnd(1, 3), rnd(1, 9)); } // loose fibres
+  speckle(c, W, H, 18);
+  for (const y of [44, H - 44]) { // stitched hems
+    for (const [ctx, col] of [[c, 'rgba(205,205,195,.9)'], [b, '#ffffff']]) {
+      ctx.strokeStyle = col; ctx.lineWidth = 5; ctx.setLineDash([18, 12]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  const map = new THREE.CanvasTexture(cc), bump = new THREE.CanvasTexture(bc);
+  map.colorSpace = THREE.SRGBColorSpace;
+  for (const t of [map, bump]) { t.wrapS = THREE.RepeatWrapping; t.repeat.set(6, 1); t.anisotropy = maxAniso; }
+  return new THREE.MeshStandardMaterial({ map, bumpMap: bump, bumpScale: 1.4, roughness: 0.97, side: THREE.DoubleSide });
+}
+function glassScratches() {
+  const c = document.createElement('canvas'); c.width = 2048; c.height = 1280;
+  const g = c.getContext('2d');
+  for (let i = 0; i < 520; i++) {
+    const x = rnd(0, 2048), y = rnd(0, 1280), a = rnd(-0.5, 0.5) + (Math.random() < 0.3 ? 1.2 : 0), len = rnd(20, 420);
+    g.strokeStyle = `rgba(225,232,240,${rnd(0.03, 0.2)})`; g.lineWidth = rnd(0.6, 2.4);
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); g.stroke();
+  }
+  for (let i = 0; i < 22; i++) { // smudges
+    const x = rnd(0, 2048), y = rnd(0, 1280), rad = rnd(60, 260), gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, 'rgba(210,220,230,.07)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = maxAniso;
+  return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: false });
+}
+function icon(draw) {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.strokeStyle = g.fillStyle = '#c9ccd0'; g.lineWidth = 11; g.lineCap = g.lineJoin = 'round';
+  draw(g);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false });
+}
+const ICONS = [
+  icon((g) => { g.beginPath(); g.arc(64, 64, 22, 0, 7); g.stroke(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; g.beginPath(); g.moveTo(64 + 30 * Math.cos(a), 64 + 30 * Math.sin(a)); g.lineTo(64 + 42 * Math.cos(a), 64 + 42 * Math.sin(a)); g.stroke(); } }),
+  icon((g) => { g.beginPath(); g.moveTo(30, 48); g.lineTo(64, 82); g.lineTo(98, 48); g.stroke(); }),
+  icon((g) => { g.beginPath(); g.moveTo(30, 80); g.lineTo(64, 46); g.lineTo(98, 80); g.stroke(); }),
+  icon((g) => { g.beginPath(); g.arc(64, 64, 32, 0, 7); g.stroke(); }),
+];
 
-// The device is built once at a reference arm radius and scaled evenly to the arm it sits on,
-// so it looks the same on the training arm and on the suit.
-const R0 = 0.045;
+// ---------- the wrist device ----------
+const M = {
+  body: wornMetal('#4b4e53', 0.06),   // gunmetal slab
+  cradle: wornMetal('#55524c', 0.3), // older, corroded carrier frame
+  strap: wovenStrap(),
+  steel: new THREE.MeshStandardMaterial({ color: 0x5d6065, metalness: 0.95, roughness: 0.42 }),
+  brass: new THREE.MeshStandardMaterial({ color: 0xa8742e, metalness: 1, roughness: 0.32 }),
+  rubber: new THREE.MeshStandardMaterial({ color: 0x141517, roughness: 0.62, metalness: 0.2 }),
+  glass: new THREE.MeshPhysicalMaterial({ color: 0x050607, roughness: 0.08, metalness: 0.4, clearcoat: 1 }),
+  hole: new THREE.MeshStandardMaterial({ color: 0x020202, roughness: 1 }),
+  syringe: new THREE.MeshPhysicalMaterial({ color: 0xe9ecef, roughness: 0.25, clearcoat: 0.6 }),
+  screen: new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false }),
+  scratches: glassScratches(),
+  logo: new THREE.MeshBasicMaterial({ map: logoTex, transparent: true, toneMapped: false }),
+  port: new THREE.MeshStandardMaterial({ color: 0x0c2a33, emissive: 0x35e0ff, emissiveIntensity: 1.6 }),
+};
+const CAPSULE_COLORS = [0xffb347, 0x5ad1ff, 0xff6b7a];
 
-// Local frame: X runs along the forearm (hand at -X), +Y points out of the wrist, R is the arm radius the sleeve closes around.
-// Text on the screen reads left-to-right along +X.
+// Local frame: X runs along the forearm (hand at -X), +Y points out of the wrist, R is the arm radius the straps close around.
+// Text on the screen reads left-to-right along +X, so the controls sit to its left like the reference.
 function createDevice(R) {
-  const g = new THREE.Group();
-  const add = (parent, geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m; };
+  const g = new THREE.Group(), base = R + 0.002;
+  const add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  const flat = (w, d) => new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2);
+  const band = (r, len) => new THREE.CylinderGeometry(r, r, len, 96, 1, true).rotateZ(Math.PI / 2);
 
-  // bulky padded kevlar sleeve (9 mm thick) with titanium compression rings near both ends
-  const SL = 0.2, sIn = R0 + 0.0015, sOut = R0 + 0.0105;
-  add(g, paddedSleeve(sIn, sOut, SL, 0.004), M.kevlar);
-  for (const x of [-1, 1]) for (const d of [0.012, 0.02]) add(g, new THREE.TorusGeometry(sOut - 0.0002, 0.0017, 14, 192).rotateY(Math.PI / 2), M.titanium, x * (SL / 2 - d));
+  // two woven straps with steel keepers, joined under the wrist
+  for (const x of [-0.048, 0.048]) {
+    add(band(R + 0.003, 0.032), M.strap, x);
+    for (const z of [-1, 1]) {
+      add(new RoundedBoxGeometry(0.035, 0.006, 0.0035, 3, 0.0012), M.steel, x, R * 0.15, z * (R + 0.0035));
+      add(new RoundedBoxGeometry(0.035, 0.007, 0.0035, 3, 0.001), M.rubber, x, -R * 0.35, z * (R * 0.94 + 0.003));
+    }
+  }
+  add(new RoundedBoxGeometry(0.13, 0.005, 0.034, 3, 0.002), M.cradle, 0, -(R + 0.004), 0);
 
-  // forged-carbon dorsal unit on top of the sleeve: gold end trim, titanium edge rails, curved display
-  const LEN = 0.15, base = sOut - 0.0012, outer = base + 0.0085, half = 0.046 / base, BEVEL = 0.0016, skin = outer + BEVEL;
-  add(g, arcSlab(base, outer, -half, half, LEN - 2 * BEVEL, BEVEL), M.carbon);
-  for (const x of [-1, 1]) add(g, arcSlab(skin - 0.0004, skin + 0.0011, -half + 0.03, half - 0.03, 0.0032), M.gold, x * (LEN / 2 - 0.006));
-  for (const s of [-1, 1]) add(g, arcSlab(skin - 0.0006, skin + 0.0008, s * (half - 0.03), s * (half - 0.018), LEN - 0.022), M.titanium);
-  const rs = skin + 0.0005, dLen = 0.112, dHalf = 0.035 / rs;
-  add(g, arcPatch(rs, -dHalf, dHalf, dLen), M.screen, -0.004);
-  add(g, arcPatch(rs + 0.0007, -dHalf - 0.004, dHalf + 0.004, dLen + 0.004, 8, 120), M.cover, -0.004);
+  // corroded carrier frame the slab locks into
+  add(new THREE.BoxGeometry(0.184, 0.004, 0.106), M.cradle, 0, base + 0.002, 0);
+  for (const z of [-1, 1]) {
+    add(new RoundedBoxGeometry(0.192, 0.022, 0.008, 3, 0.0015), M.cradle, 0, base + 0.011, z * 0.0565);
+    for (const x of [0.03, 0.038, 0.046]) add(new THREE.BoxGeometry(0.0032, 0.012, 0.0006), M.hole, x, base + 0.011, z * 0.0606); // milled slots
+    for (const x of [-0.07, 0.075]) add(new THREE.BoxGeometry(0.012, 0.0012, 0.0006), M.hole, x, base + 0.015, z * 0.0606);
+    const logo = add(new THREE.PlaneGeometry(0.02, 0.0167), M.logo, -0.02, base + 0.011, z * 0.0607);
+    if (z < 0) logo.rotation.y = Math.PI;
+    for (const x of [-0.048, 0.048]) add(new RoundedBoxGeometry(0.038, 0.012, 0.006, 3, 0.0015), M.cradle, x, base - 0.002, z * 0.0545); // strap lugs
+  }
 
-  // far side: carbon pod carrying the hazard-amber mechanical pull-ring override
-  const pa = -(half + 0.36);
-  add(g, arcSlab(sOut - 0.0012, sOut + 0.006, pa - 0.24, pa + 0.24, 0.05, 0.0012), M.carbon, -0.02);
-  const rig = new THREE.Group(); rig.rotation.x = pa; g.add(rig);
-  const ry = sOut + 0.0072 + 0.004;
-  add(rig, new THREE.BoxGeometry(0.032, 0.008, 0.02), M.amber, -0.02, ry);
-  add(rig, new THREE.CylinderGeometry(0.0055, 0.0055, 0.0012, 32), M.darkTi, -0.02, ry + 0.0045);
-  add(rig, new THREE.CylinderGeometry(0.0022, 0.0022, 0.012, 16), M.steel, -0.02, ry + 0.006);
-  add(rig, new THREE.TorusGeometry(0.0072, 0.0017, 16, 40).rotateX(Math.PI / 2), M.gold, -0.02, ry + 0.0105);
-  add(rig, xcyl(0.0012, 0.0012, 0.0137, 12), M.gold, -0.02, ry + 0.0105);
+  // the slab: stepped gunmetal body, raised bezel, glass
+  add(new RoundedBoxGeometry(0.18, 0.018, 0.105, 6, 0.004), M.body, 0, base + 0.013, 0);
+  add(new RoundedBoxGeometry(0.174, 0.006, 0.099, 6, 0.0025), M.body, 0, base + 0.0235, 0);
+  const top = base + 0.0265;
+  add(new RoundedBoxGeometry(0.116, 0.003, 0.077, 4, 0.0012), M.body, 0.007, top, 0);   // screen surround
+  add(new RoundedBoxGeometry(0.11, 0.003, 0.071, 4, 0.001), M.glass, 0.007, top + 0.0006, 0);
+  add(flat(0.104, 0.065), M.screen, 0.007, top + 0.0022, 0);
+  add(flat(0.11, 0.071), M.scratches, 0.007, top + 0.0024, 0);
+  for (const [x, z] of [[-0.083, -0.045], [0.083, -0.045], [-0.083, 0.045], [0.083, 0.045]]) add(new THREE.CylinderGeometry(0.0016, 0.0016, 0.001, 12), M.steel, x, top + 0.0003, z);
 
-  // near side: carbon pod built into the sleeve, carrying the syringe tray, toward the hand end where they are loaded
-  const bc = half + 0.5;
-  add(g, arcSlab(sOut - 0.0012, sOut + 0.006, bc - 0.42, bc + 0.42, 0.14, 0.0012), M.carbon, -0.02);
-  const bay = new THREE.Group(); bay.rotation.x = bc; g.add(bay);
-  const by = sOut + 0.0135, home = -0.045, units = [], rings = [], channels = [];
-  add(bay, new THREE.BoxGeometry(0.125, 0.0016, 0.035), M.darkTi, -0.033, by - 0.0052);
-  for (const z of [-0.0185, 0.0185]) add(bay, new THREE.BoxGeometry(0.125, 0.0035, 0.0016), M.gold, -0.033, by - 0.0035, z);
-  SYRINGES.forEach((s, i) => {
-    const z = (i - 1) * 0.0105, u = new THREE.Group();
-    u.position.set(home, by, z); bay.add(u);
-    add(u, xcyl(0.0042, 0.0042, 0.07), M.glass);                                                       // borosilicate barrel
-    for (const x of [-0.018, -0.006, 0.006, 0.018]) add(u, xcyl(0.00432, 0.00432, 0.0004), M.stopper, x); // dose marks
-    add(u, xcyl(0.0033, 0.0033, 0.06, 24), new THREE.MeshStandardMaterial({ color: s.color, emissive: s.color, emissiveIntensity: 0.8, transparent: true, opacity: 0.92 }), 0.003); // drug
-    const ring = add(u, xcyl(0.0054, 0.0054, 0.009), new THREE.MeshStandardMaterial({ color: 0xc9a227, emissive: 0xf59e0b, emissiveIntensity: 0.05, roughness: 0.25, metalness: 1 }), -0.016); // piezo drive ring
-    add(u, xcyl(0.0034, 0.0034, 0.005, 24), M.stopper, -0.0285);                                       // stopper
-    add(u, xcyl(0.0014, 0.0014, 0.058, 16), M.steel, -0.06);                                           // plunger rod
-    add(u, xcyl(0.0045, 0.0045, 0.0018), M.steel, -0.0895);                                            // thumb pad
-    add(u, xcyl(0.0018, 0.0032, 0.01, 20), new THREE.MeshStandardMaterial({ color: 0xb91c1c, emissive: s.color, emissiveIntensity: 0.3, roughness: 0.15, metalness: 0.5 }), 0.04); // ruby check-valve nozzle
-    const curve = new THREE.CatmullRomCurve3([V3(0, by, z), V3(0.009, by, z * 0.65), V3(0.021, by - 0.0006, 0)]);
-    channels.push(add(bay, new THREE.TubeGeometry(curve, 24, 0.0009, 10, false), new THREE.MeshStandardMaterial({ color: s.color, emissive: s.color, emissiveIntensity: 0, transparent: true, opacity: 0.85 })));
-    units.push(u); rings.push(ring);
+  // controls to the left of the screen: four keys and a four-way pad
+  [-0.039, -0.0255, -0.012, 0.0015].forEach((z, i) => {
+    add(new RoundedBoxGeometry(0.0125, 0.004, 0.0112, 3, 0.0012), M.rubber, -0.069, top + 0.001, z);
+    add(flat(0.0085, 0.0085), ICONS[i], -0.069, top + 0.0032, z);
   });
-  add(bay, new THREE.BoxGeometry(0.026, 0.011, 0.034), M.manifold, 0.012, by);
-  add(bay, new THREE.CylinderGeometry(0.0045, 0.0045, 0.011, 32), M.trap, 0.021, by);
-  add(bay, new THREE.CylinderGeometry(0.0053, 0.0053, 0.0022, 32), M.gold, 0.021, by + 0.0058);
+  add(new THREE.CylinderGeometry(0.0155, 0.0155, 0.0016, 48), M.hole, -0.069, top, 0.03);
+  add(new THREE.TorusGeometry(0.0155, 0.0011, 10, 56).rotateX(Math.PI / 2), M.body, -0.069, top + 0.0008, 0.03);
+  for (const [dx, dz, rot] of [[0.0075, 0, 0], [-0.0075, 0, 0], [0, 0.0075, 1], [0, -0.0075, 1]]) {
+    const petal = add(new THREE.CapsuleGeometry(0.0027, 0.0052, 6, 16).rotateZ(Math.PI / 2), M.rubber, -0.069 + dx, top + 0.0016, 0.03 + dz);
+    petal.rotation.y = rot * Math.PI / 2; petal.scale.y = 0.6;
+  }
 
-  // p in 0..1: syringes slide into the bay one after another; a seated one lights its drive ring and channel
+  // insignia and vents on the right of the bezel
+  add(flat(0.019, 0.0159), M.logo, 0.075, top + 0.0008, -0.03);
+  for (const z of [0.012, 0.02, 0.028, 0.036]) add(new THREE.BoxGeometry(0.014, 0.0006, 0.0028), M.hole, 0.075, top + 0.0003, z);
+
+  // hand end: three brass syringe sockets and a data port
+  add(new RoundedBoxGeometry(0.012, 0.03, 0.113, 3, 0.002), M.cradle, -0.094, base + 0.015, 0);
+  const face = -0.1002, seat = face - 0.007, capsules = [], leds = [];
+  [-0.034, -0.014, 0.006].forEach((z, i) => {
+    add(new THREE.TorusGeometry(0.0064, 0.0013, 12, 40).rotateY(Math.PI / 2), M.brass, face, base + 0.013, z);
+    add(new THREE.CircleGeometry(0.0064, 32).rotateY(-Math.PI / 2), M.hole, face - 0.0001, base + 0.013, z);
+    // a prefilled syringe: needle end goes into the socket, plunger stays outside
+    const syr = new THREE.Group(), xcyl = (r, len) => new THREE.CylinderGeometry(r, r, len, 28).rotateZ(Math.PI / 2);
+    const part = (geo, mat, x) => { const m = new THREE.Mesh(geo, mat); m.position.x = x; syr.add(m); };
+    part(xcyl(0.0045, 0.026), new THREE.MeshPhysicalMaterial({ color: CAPSULE_COLORS[i], roughness: 0.06, clearcoat: 1, emissive: CAPSULE_COLORS[i], emissiveIntensity: 0.15 }), 0.013); // barrel full of medicine
+    for (const x of [0.004, 0.008, 0.012]) part(xcyl(0.00462, 0.0005), M.rubber, x);                                             // dose marks
+    part(new THREE.CylinderGeometry(0.0085, 0.0085, 0.0014, 28).rotateZ(Math.PI / 2).scale(1, 1, 0.62), M.syringe, 0);          // finger flange
+    part(xcyl(0.0016, 0.013), M.syringe, -0.0065);                                                                               // plunger rod
+    part(xcyl(0.0058, 0.0016), M.syringe, -0.0135);                                                                              // thumb pad
+    syr.position.set(seat, base + 0.013, z); g.add(syr);
+    capsules.push(syr);
+    leds.push(add(new THREE.SphereGeometry(0.0016, 12, 8), new THREE.MeshStandardMaterial({ color: 0x10301c, emissive: 0x7dffa6, emissiveIntensity: 0 }), face, base + 0.0245, z));
+  });
+  add(new THREE.BoxGeometry(0.0008, 0.009, 0.011), M.hole, face, base + 0.013, 0.036);
+  add(new THREE.BoxGeometry(0.001, 0.011, 0.013), M.steel, face + 0.0003, base + 0.013, 0.036);
+
+  // injector head: sits on the wrist crease just past the sockets, needle guide pressed onto the veins
+  add(new RoundedBoxGeometry(0.024, 0.012, 0.046, 4, 0.003), M.body, -0.112, base + 0.001, -0.014);
+  add(new THREE.BoxGeometry(0.0245, 0.0016, 0.03), M.port, -0.112, base + 0.003, -0.014);
+  for (const z of [-0.026, -0.002]) add(new THREE.CylinderGeometry(0.0011, 0.0011, 0.012, 10).rotateZ(Math.PI / 2), M.steel, -0.105, base + 0.006, z); // feed lines from the sockets
+
+  // p in 0..1: syringes slide into their sockets one after another
   g.userData.setLoad = (p) => {
     let n = 0;
-    units.forEach((u, i) => {
+    capsules.forEach((c, i) => {
       const t = THREE.MathUtils.smoothstep(p * 3.4 - i, 0, 1);
-      u.position.x = home - (1 - t) * 0.085;
-      u.visible = p * 3.4 - i > -0.4;
-      rings[i].material.emissiveIntensity = t >= 1 ? 0.6 : 0.05;
-      channels[i].material.emissiveIntensity = t >= 1 ? 0.75 : 0;
+      c.position.x = seat - (1 - t) * 0.085;
+      c.visible = p * 3.4 - i > -0.4;
+      leds[i].material.emissiveIntensity = t >= 1 ? 3 : 0;
       if (t >= 1) n++;
     });
     return n;
   };
   g.userData.setLoad(1);
-  const k = R / R0;
-  g.scale.setScalar(k);
-  g.userData.top = rs * k; // height of the screen above the arm axis, for framing
+  g.userData.top = top; // height of the screen above the arm axis, for framing
   shadows(g);
   return g;
 }
