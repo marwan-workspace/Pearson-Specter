@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VitaCuff v2: a wrist medical unit for astronauts</title>
+<meta name="description" content="VitaCuff is a NASA Space Apps concept: a wrist unit that tracks an astronaut's vitals and injects up to three prefilled syringes on schedule inside the spacecraft.">
+<link rel="icon" href="../vitacuff/assets/nasa-logo.svg">
+<link rel="stylesheet" href="../vitacuff/style.css">
+<script type="importmap">
+{ "imports": { "three": "../vitacuff/vendor/three/three.module.js", "three/addons/": "../vitacuff/vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="scene" aria-hidden="true"></canvas>
+
+<header class="bar">
+  <img src="../vitacuff/assets/nasa-logo.svg" alt="NASA" width="66" height="55">
+  <p><strong>VitaCuff</strong><span>NASA Space Apps Challenge concept</span></p>
+</header>
+
+<p id="loader" role="status">Loading 3D models…</p>
+
+<main>
+  <section data-stage="device" data-side="left">
+    <div class="panel">
+      <h1>A medicine cabinet that rides on your wrist</h1>
+      <p>VitaCuff is a wrist unit for astronauts. It straps over the veins on the inside of your wrist, watches your vitals around the clock and injects each dose on time.</p>
+      <p class="hint">Scroll to see how it works. Drag to turn the model.</p>
+    </div>
+  </section>
+
+  <section data-stage="device" data-side="right">
+    <div class="panel">
+      <h2>It reads your body all day</h2>
+      <p>Sensors under the straps sit against the wrist and report to the screen on top and to the flight surgeon on the ground.</p>
+      <dl class="vitals">
+        <div><dt>Heart rate</dt><dd>live trace and beats per minute</dd></div>
+        <div><dt>Blood oxygen</dt><dd>checked every second</dd></div>
+        <div><dt>Body temperature</dt><dd>skin sensor under the unit</dd></div>
+        <div><dt>Blood pressure</dt><dd>read from the wrist line</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section data-stage="device" data-side="left" data-capsules>
+    <div class="panel">
+      <h2>Three syringes, issued with your access card</h2>
+      <ol>
+        <li>Tap your access card at the ship's dispenser.</li>
+        <li>It issues the prefilled syringes prescribed for you.</li>
+        <li>Push up to three into the brass sockets at the hand end of the unit, needle first.</li>
+        <li>At each set time the injector head, resting on the veins of your wrist, delivers the dose.</li>
+      </ol>
+      <p class="hint">Keep scrolling to load all three.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Concept demo for the NASA Space Apps Challenge. Readings on the screen are simulated. VitaCuff is an idea, not a medical device.</p>
+</footer>
+
+<noscript><p class="fallback">This page needs JavaScript to show the 3D models.</p></noscript>
+<script type="module" src="main.js"></script>
+</body>
+</html>

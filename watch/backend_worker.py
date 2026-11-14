@@ -1,4 +1,8 @@
-"""One JSON request in, one watch decision JSON object out for the JavaScript service."""
+"""One JSON request for the whole crew in, one watch decision per astronaut out, for the JavaScript service.
+
+stdin:  {"crew": [{"reading": {...}, "lastDose": {...}}, ...]}
+stdout: {"results": [{"state": ..., "flags": [...], "decision": {...}}, ...]}   same order as "crew"
+"""
 import json
 import sys
 
@@ -8,12 +12,15 @@ from watch.decide import RULES, decide
 
 def main():
     request = json.load(sys.stdin)
-    model, baselines = load()
-    reading = request["reading"]
-    state = classify(model, reading)
-    raised = flags(reading, baselines, RULES["thresholds"])
-    result = decide(reading, state, raised, baselines, request.get("lastDose", {}))
-    print(json.dumps({"state": state, "flags": raised, "decision": result}))
+    model, baselines = load()  # once per tick, not once per astronaut
+    results = []
+    for member in request["crew"]:
+        reading = member["reading"]
+        state = classify(model, reading)
+        raised = flags(reading, baselines, RULES["thresholds"])
+        results.append({"state": state, "flags": raised,
+                        "decision": decide(reading, state, raised, baselines, member.get("lastDose", {}))})
+    print(json.dumps({"results": results}))
 
 
 if __name__ == "__main__":

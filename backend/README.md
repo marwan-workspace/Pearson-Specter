@@ -12,12 +12,17 @@ npm run seed:accounts
 npm start
 ```
 
+`npm test` runs `smoke.test.js` against an empty throwaway database named by `DATABASE_URL_TEST` (it applies the schema itself); without that variable the tests are skipped.
+
 Python workers use the repository virtual environment by default. Set `PYTHON_BIN` if the Python executable is elsewhere. Set `WATCH_ENABLED=false` to disable the watch loop or `WATCH_TICK_MS` to change its interval.
+
+On Windows, if `.venv` was created under Linux/WSL, create a separate environment with `py -m venv .venv-windows`, then run `.venv-windows\Scripts\python.exe -m pip install -r requirements.txt` from the repository root. The backend detects this environment automatically.
 
 ## API surface
 
 - `POST /backend/auth/login`, `POST /backend/auth/logout`, `GET /backend/me`
 - `GET /backend/astronauts/:id/{vitals,sleep,mental,checkins,assessment,plan,medications,labs,events,decisions}`
+- `GET /backend/astronauts/:id/record?<stream>=<time>` returns all ten streams above in one query, each newer than its own optional cursor (for example `?vitals=2026-11-14T09:00:00Z`); the dashboard's record page polls this instead of the ten routes
 - `GET /backend/crew/overview`, `GET /backend/decisions/pending`, `POST /backend/decisions/:id`
 - `POST /backend/events/:id/{cancel,confirm,given}`, `GET /backend/alerts`, `POST /backend/alerts/:id/ack`
 - `GET /backend/command`, `POST /backend/command/{handover,restore,earth-link,location}`, `POST /backend/accounts/:id/unlock`

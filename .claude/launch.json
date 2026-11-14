@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-frontend",
+      "runtimeExecutable": "C:\\Users\\sshou\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe\\fnm.exe",
+      "runtimeArgs": ["exec", "--using=default", "node", "web-frontend/node_modules/next/dist/bin/next", "dev", "web-frontend", "--webpack", "-p", "3000"],
+      "port": 3000
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "C:\\Users\\sshou\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Schniz.fnm_Microsoft.Winget.Source_8wekyb3d8bbwe\\fnm.exe",
+      "runtimeArgs": ["exec", "--using=default", "node", "backend/server.js"],
+      "port": 8000
+    }
+  ]
+}

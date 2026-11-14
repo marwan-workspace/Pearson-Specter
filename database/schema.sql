@@ -677,6 +677,17 @@ GRANT USAGE ON SCHEMA public TO app_user, watch_service;
 REVOKE ALL ON FUNCTION acting_leader(UUID), decider_for(UUID), visible_astronauts(), app_astronaut_id(),
     is_mission_crew(UUID), administer_alerted_medication(UUID,UUID), administer_watch_medication(UUID), simulate_condition(UUID,TEXT),
     simulate_sensor_fault(UUID), set_mission_earth_link(UUID,UUID,BOOLEAN), set_mission_location(UUID,UUID,TEXT), schedule_mission_report_delivery() FROM PUBLIC;
+-- Postgres lets every role run a new function, and Supabase exposes public functions at /rest/v1/rpc/.
+-- These run with the owner's rights, so only the two app roles below may call them.
+DO $$ DECLARE fns TEXT := 'acting_leader(UUID), decider_for(UUID), visible_astronauts(), is_mission_crew(UUID),
+    administer_alerted_medication(UUID,UUID), administer_watch_medication(UUID), set_mission_earth_link(UUID,UUID,BOOLEAN),
+    set_mission_location(UUID,UUID,TEXT), simulate_condition(UUID,TEXT), simulate_sensor_fault(UUID), schedule_mission_report_delivery()';
+BEGIN
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION ' || fns || ' FROM PUBLIC';
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN  -- Supabase API roles
+        EXECUTE 'REVOKE EXECUTE ON FUNCTION ' || fns || ' FROM anon, authenticated';
+    END IF;
+END $$;
 GRANT EXECUTE ON FUNCTION acting_leader(UUID), decider_for(UUID), visible_astronauts(), app_astronaut_id(), is_mission_crew(UUID), administer_alerted_medication(UUID,UUID), set_mission_earth_link(UUID,UUID,BOOLEAN), set_mission_location(UUID,UUID,TEXT) TO app_user, watch_service;
 GRANT EXECUTE ON FUNCTION administer_watch_medication(UUID) TO watch_service;
 GRANT EXECUTE ON FUNCTION simulate_condition(UUID,TEXT), simulate_sensor_fault(UUID) TO app_user;
@@ -775,6 +786,10 @@ CREATE POLICY report_replies_read ON mission_command_replies FOR SELECT TO app_u
 CREATE POLICY leader_report_insert ON mission_reports FOR INSERT TO app_user WITH CHECK (
     report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id()
 );
+-- lets the leader rewrite this week's report (POST /backend/weekly upserts on the period index)
+CREATE POLICY leader_report_update ON mission_reports FOR UPDATE TO app_user
+    USING (report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id())
+    WITH CHECK (report_type = 'weekly' AND acting_leader(mission_id) = app_astronaut_id());
 CREATE POLICY subject_emergency_report_insert ON mission_reports FOR INSERT TO app_user WITH CHECK (
     report_type = 'emergency' AND (astronaut_id = app_astronaut_id() OR decider_for(astronaut_id) = app_astronaut_id())
 );
@@ -847,6 +862,8 @@ GRANT SELECT ON missions, astronauts, rule_sets, rules, vital_samples, sleep_ses
 GRANT INSERT, UPDATE ON check_ins, check_in_answers, agent_conversations, agent_messages, lab_results,
     crew_alerts, decisions, treatment_plans, treatment_plan_items, medication_events, sessions, accounts,
     astronauts, command_handovers, mission_reports TO app_user;
+GRANT DELETE ON sessions TO app_user;  -- sign-out; the session_logout policy limits it to the caller's own session
+GRANT INSERT ON health_assessments, sleep_sessions TO app_user;  -- Run assessment and the check-in's sleep entry; their insert policies limit the rows
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO watch_service;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user, watch_service;
 

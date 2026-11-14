@@ -19,7 +19,7 @@ Status: JavaScript API, PostgreSQL schema, Python worker bridge, and dashboard i
 | `backend/` | Node.js HTTP API persists web and worker results with `pg`. |
 | `web-frontend/` | Session-gated dashboard uses `/backend/*` for private records, crew overview, decisions, alerts, reports, lab entry, and command controls. |
 
-One `rewrites` entry in `web-frontend/next.config.ts` forwards `/backend/*` to port 8000; cookies pass through. The legacy `/api/agent/*` route remains available but is not the authenticated dashboard data path.
+One `rewrites` entry in `web-frontend/next.config.ts` forwards `/backend/*` to port 8000; cookies pass through. The legacy unauthenticated `/api/agent/*` route was removed; agent calls go through the backend's signed-in `/backend/*` endpoints.
 
 ## Access model
 

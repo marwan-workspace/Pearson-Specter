@@ -136,7 +136,7 @@ Periodic lab results (blood count, metabolic panel) entered on the dashboard. Th
 When the watch detects a problem, other astronauts are told who is in trouble and what to give. Required for response tier 3.
 
 #### 12. Medication log and stock — Should
-Records proposed, confirmed, withheld and administered doses, enforces the cancel window, and tracks inventory consumption when a reviewed dose quantity and stock lot are configured. Inventory starts empty. The sample stock quantities in `web-frontend/src/lib/conditions.ts` are placeholders pending medical review and are not loaded into the database; watch rules do not specify dose quantities, so automatic administration remains withheld until reviewed values are configured. The UI's sample maximum-daily-dose values are also not enforced as clinical limits.
+Records proposed, confirmed, withheld and administered doses, enforces the cancel window, and tracks inventory consumption when a reviewed dose quantity and stock lot are configured. Inventory starts empty. Watch rules do not specify dose quantities, so automatic administration remains withheld until reviewed values are configured.
 
 #### 17. Decision log — Later
 Every watch and agent decision is stored with the rule that fired and the reason, and included in the weekly report.

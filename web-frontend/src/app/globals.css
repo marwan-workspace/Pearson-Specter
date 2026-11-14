@@ -1,95 +1,139 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/archivo/wdth.css';
 
-/*
- * Crew Health design system.
- *
- * Colour: a white suit against deep orbital navy. Warm white ink, cool silver for secondary text,
- *         NASA blue for actions. Mint, amber and coral mean health status and nothing else.
- * Type:   one family, Archivo Variable. Its width axis carries the hierarchy:
- *         expanded = identity and headlines, normal = reading, condensed = labels and units.
- * Shape:  instrument-panel geometry. 6px panels, 4px controls, pills only for status.
- * Motion: tokens below. Transform and opacity only; everything collapses under reduced motion.
- */
+/* Crew Health: graphite surfaces, platinum type and amber controls. */
 :root {
-  /* Surfaces: deep orbital navy, taken from the VitaCuff walkthrough. Never pure black. */
-  --space-deep: #060e1c; /* behind the suit, and wells inside raised surfaces */
-  --space-0: #091426; /* page */
-  --space-1: #12233b; /* raised surface */
-  --space-2: #172c49; /* hover, selected */
-  --space-3: #26426a; /* tracks, pressed */
-  --line: #2a3d59; /* fine rules that group information */
-  --line-strong: #6f86a6; /* control boundaries: at least 3:1 on every surface */
+  --bg-void: #07080B;
+  --bg-panel: #0F1117;
+  --bg-panel-elevated: #161922;
+  --bg-ambient-mesh:
+    radial-gradient(circle at 18% 12%, rgba(245, 158, 11, 0.08) 0%, transparent 42%),
+    radial-gradient(circle at 82% 88%, rgba(99, 102, 241, 0.07) 0%, transparent 48%);
+  --glass-surface: rgba(15, 17, 23, 0.72);
+  --glass-surface-hover: rgba(22, 25, 34, 0.86);
+  --glass-subcard: rgba(26, 30, 41, 0.58);
+  --glass-hud-floating: rgba(15, 17, 23, 0.94);
+  --glass-blur: blur(20px) saturate(150%);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-border-accent: rgba(245, 158, 11, 0.42);
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.85);
+  --accent-primary: #F59E0B;
+  --accent-primary-glow: rgba(245, 158, 11, 0.22);
+  --accent-secondary: #E2E8F0;
+  --accent-violet: #8B5CF6;
+  --status-nominal: #10B981;
+  --status-nominal-glow: rgba(16, 185, 129, 0.16);
+  --status-warning: #F59E0B;
+  --status-warning-glow: rgba(245, 158, 11, 0.16);
+  --status-critical: #EF4444;
+  --status-critical-glow: rgba(239, 68, 68, 0.16);
+  --status-fault: #8B5CF6;
+  --text-primary: #F4F4F5;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+}
 
-  /* Ink */
-  --white: #f5f2e9; /* warm white: names and primary readings */
-  --text-2: #b8c7d9; /* cool silver: units, axes, secondary labels */
-  --text-3: #a3b5cb; /* quietest text that still clears 4.5:1 on raised surfaces */
+/* Values the specification does not name. */
+:root {
+  --on-accent: #07080B;
+  --accent-primary-hover: #fbbf24;
+  --status-fault-glow: rgba(139, 92, 246, 0.16);
+  --control-border: rgba(148, 163, 184, 0.5); /* inputs and outlined buttons: about 3:1 on glass */
+  --solid-fallback: var(--bg-panel-elevated);
 
-  /* NASA brand */
-  --nasa-blue: #0b3d91; /* solid actions, always with light text */
-  --nasa-blue-hover: #124fb5;
-  --nasa-blue-edge: #5e93e0;
-  --nasa-blue-bright: #83b9ff; /* links, focus, selected details on navy */
-  --nasa-red: #fc3d21;
-
-  /* Health status: always with a word and its own symbol. Crew identity colours are separate. */
-  --nominal: #83e4b5;
-  --watch: #ffd078;
-  --critical: #ff9d95; /* coral, lifted from #FF857C so alert text clears 7:1 on raised and selected surfaces */
-  --critical-surface: #3d161b;
-  --agent: #a5dcf2;
-
-  --chart-1: #83b9ff;
-  --chart-2: #ffb894;
-  --chart-3: #7fe0d0;
-
-  /* Motion tokens */
   --duration-instant: 80ms;
   --duration-fast: 150ms;
   --duration-normal: 220ms;
   --duration-deliberate: 320ms;
-  --duration-stage: 700ms;
   --ease-snappy: cubic-bezier(0.2, 0, 0, 1);
   --ease-out-ui: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-ui: cubic-bezier(0.7, 0, 0.84, 0);
 
-  --header-h: 56px;
-  --radius-panel: 6px;
-  --radius-control: 4px;
+  --header-h: 60px;
+  --radius-panel: 16px;
+  --radius-control: 10px;
 
+  interpolate-size: allow-keywords; /* lets accordions animate to their natural height where supported */
   color-scheme: dark;
 }
 
+/* Light theme: white instrument panels on a cool blue-white canvas, navy ink, one blue for every action.
+   Dark stays graphite and amber. Every text colour clears 4.5:1 on the darkest light surface (#e8eef7). */
+:root[data-theme='light'] {
+  --bg-void: #f3f6fb;
+  --bg-panel: #ffffff;
+  --bg-panel-elevated: #e8eef7;
+  --bg-ambient-mesh:
+    radial-gradient(circle at 12% 18%, rgba(29, 78, 216, 0.07) 0%, transparent 42%),
+    radial-gradient(circle at 86% 82%, rgba(14, 116, 144, 0.07) 0%, transparent 48%);
+
+  --glass-surface: rgba(255, 255, 255, 0.86);
+  --glass-surface-hover: rgba(255, 255, 255, 0.97);
+  --glass-subcard: rgba(232, 238, 247, 0.72);
+  --glass-hud-floating: rgba(255, 255, 255, 0.94);
+  --glass-border: rgba(11, 26, 51, 0.1);
+  --glass-border-accent: rgba(29, 78, 216, 0.42);
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 14px 34px -16px rgba(11, 26, 51, 0.22);
+
+  --accent-primary: #1d4ed8;
+  --accent-primary-glow: rgba(29, 78, 216, 0.1);
+  --accent-primary-hover: #1e40af;
+  --accent-secondary: #0e7490;
+  --accent-violet: #6d28d9;
+  --on-accent: #ffffff;
+
+  --status-nominal: #047857;
+  --status-nominal-glow: rgba(4, 120, 87, 0.1);
+  --status-warning: #a3470a;
+  --status-warning-glow: rgba(163, 71, 10, 0.1);
+  --status-critical: #be123c;
+  --status-critical-glow: rgba(190, 18, 60, 0.08);
+  --status-fault: #7e22ce;
+  --status-fault-glow: rgba(126, 34, 206, 0.08);
+
+  --text-primary: #0b1a33;
+  --text-secondary: #44546a;
+  --text-muted: #5a6a80;
+  --control-border: #7b8aa0; /* solid, so inputs keep 3:1 on every light surface */
+
+  color-scheme: light;
+}
+
 @theme inline {
-  --color-space-deep: var(--space-deep);
-  --color-space-0: var(--space-0);
-  --color-space-1: var(--space-1);
-  --color-space-2: var(--space-2);
-  --color-space-3: var(--space-3);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
-  --color-nasa-blue: var(--nasa-blue);
-  --color-nasa-bright: var(--nasa-blue-bright);
-  --color-nasa-red: var(--nasa-red);
-  --color-critical-surface: var(--critical-surface);
-  --color-ink: var(--white);
-  --color-text-2: var(--text-2);
-  --color-text-3: var(--text-3);
-  --color-nominal: var(--nominal);
-  --color-watch: var(--watch);
-  --color-critical: var(--critical);
-  --color-agent: var(--agent);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
+  --color-void: var(--bg-void);
+  --color-deep-space: var(--bg-panel);
+  --color-elevated: var(--bg-panel-elevated);
+  --color-glass: var(--glass-surface);
+  --color-glass-hover: var(--glass-surface-hover);
+  --color-glass-inner: var(--glass-subcard);
+  --color-glass-hud: var(--glass-hud-floating);
+  --color-hairline: var(--glass-border);
+  --color-hairline-accent: var(--glass-border-accent);
+  --color-edge: var(--control-border);
+  --color-accent: var(--accent-primary);
+  --color-accent-dim: var(--accent-primary-glow);
+  --color-platinum: var(--accent-secondary);
+  --color-violet: var(--accent-violet);
+  --color-on-accent: var(--on-accent);
+  --color-nominal: var(--status-nominal);
+  --color-nominal-glow: var(--status-nominal-glow);
+  --color-warning: var(--status-warning);
+  --color-warning-glow: var(--status-warning-glow);
+  --color-critical: var(--status-critical);
+  --color-critical-glow: var(--status-critical-glow);
+  --color-fault: var(--status-fault);
+  --color-fault-glow: var(--status-fault-glow);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
   --font-sans: 'Archivo Variable', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
 }
 
 @layer base {
   html {
-    background: var(--space-0);
-    color: var(--white);
+    background: var(--bg-void);
+    color: var(--text-primary);
     font-family: var(--font-sans);
     font-size: 16px;
     line-height: 1.5;
@@ -99,7 +143,17 @@
   }
   body {
     min-height: 100dvh;
-    background: var(--space-0);
+    background: var(--bg-void);
+  }
+  /* Ambient lighting: the nebula over a deep-space-to-void fall-off, fixed behind everything so the glass
+     always has light to blur. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--bg-ambient-mesh), linear-gradient(180deg, var(--bg-panel), var(--bg-void));
   }
   h1,
   h2,
@@ -110,75 +164,153 @@
   li {
     text-wrap: pretty;
   }
+  a,
   button,
   [role='button'],
+  [role='tab'],
   summary,
-  select,
-  label[for],
-  input[type='radio'],
-  input[type='checkbox'] {
+  select {
     cursor: pointer;
   }
   button:disabled {
     cursor: not-allowed;
   }
   :focus-visible {
-    outline: 2px solid var(--nasa-blue-bright);
+    outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
     border-radius: var(--radius-control);
   }
   ::selection {
-    background: var(--nasa-blue);
-    color: var(--white);
+    background: var(--accent-primary);
+    color: var(--on-accent);
   }
-  /* Quiet scrollbars for the dark theme */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--line-strong) transparent;
+    scrollbar-color: var(--control-border) transparent;
+  }
+  summary {
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
   }
 }
 
-/* ───────────── Type roles (the width axis is the hierarchy) ───────────── */
+@layer components {
+/* ───────────── Type roles ───────────── */
 
 .display {
-  font-stretch: 125%;
+  font-stretch: 118%;
   font-weight: 700;
   letter-spacing: -0.025em;
-  line-height: 1.02;
+  line-height: 1.04;
 }
 .title {
-  font-stretch: 112%;
+  font-stretch: 108%;
   font-weight: 650;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.012em;
   line-height: 1.2;
 }
+/* Instrument labels. --text-secondary, not --text-muted: muted is under 4.5:1 on the canvas, so it is kept
+   for icons and decoration. */
 .label {
-  font-stretch: 84%;
+  font-stretch: 88%;
   font-weight: 500;
   font-size: 0.8125rem;
-  letter-spacing: 0.012em;
+  letter-spacing: 0.02em;
   line-height: 1.3;
-  color: var(--text-3);
+  color: var(--text-secondary);
 }
+/* Telemetry figures: fixed-width digits, so a value that ticks from 71 to 108 never shifts its neighbours. */
 .num {
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums slashed-zero;
   font-feature-settings: 'tnum' 1;
 }
-
-/* ───────────── Surfaces ───────────── */
-
-.panel {
-  background: var(--space-1);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
+/* A reading that deserves a little light of its own. */
+.glow-accent {
+  text-shadow: 0 0 18px var(--accent-primary-glow);
 }
-/* A well sits inside a panel: darker, not another bordered card. */
+
+/* ───────────── Glass surfaces ───────────── */
+
+.panel,
+.glass {
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-specular), var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  transition:
+    background-color var(--duration-normal) var(--ease-out-ui),
+    border-color var(--duration-normal) var(--ease-out-ui),
+    transform var(--duration-normal) var(--ease-out-ui),
+    box-shadow var(--duration-normal) var(--ease-out-ui);
+}
+.panel:hover {
+  background: var(--glass-surface-hover);
+  border-color: var(--glass-border-accent);
+}
+/* Widgets that open or summarise something rise under the pointer and pick up a amber halo. */
+.lift:hover {
+  transform: translate3d(0, -3px, 0);
+  box-shadow:
+    var(--glass-specular),
+    var(--glass-shadow),
+    0 0 0 1px var(--accent-primary-glow),
+    0 0 32px -6px var(--accent-primary-glow);
+}
+/* A nested card inside a widget. No second blur: it sits on glass that is already frosted. */
 .well {
-  background: var(--space-deep);
+  background: var(--glass-subcard);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-control);
 }
-.rule {
-  border-top: 1px solid var(--line);
+/* Floating HUD glass: the sticky header, toasts and menus, which must stay legible over anything. */
+.hud {
+  background: var(--glass-hud-floating);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-specular), var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+.hud-bar {
+  background: var(--glass-hud-floating);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--glass-specular);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+/* A critical surface: the alert banner and error states. */
+.critical-surface {
+  background: var(--status-critical-glow);
+  border: 1px solid var(--status-critical);
+  border-radius: var(--radius-panel);
+  box-shadow:
+    var(--glass-specular),
+    0 0 36px -10px var(--status-critical-glow);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+/* High-contrast solid fallback where the browser cannot blur what is behind a surface. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .panel,
+  .glass,
+  .hud,
+  .hud-bar {
+    background: var(--solid-fallback);
+  }
+  .critical-surface {
+    background: color-mix(in srgb, var(--status-critical) 22%, var(--solid-fallback));
+  }
+}
+/* A row that can be pressed or opened. */
+.row {
+  transition: background-color var(--duration-fast) var(--ease-out-ui);
+}
+.row:hover {
+  background: var(--glass-surface-hover);
 }
 
 /* ───────────── Controls ───────────── */
@@ -192,96 +324,125 @@
   padding: 0 1rem;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
-  font-weight: 600;
+  font-weight: 650;
   font-size: 0.875rem;
-  font-stretch: 96%;
   white-space: nowrap;
   transition:
     background-color var(--duration-fast) var(--ease-out-ui),
     border-color var(--duration-fast) var(--ease-out-ui),
     color var(--duration-fast) var(--ease-out-ui),
+    box-shadow var(--duration-fast) var(--ease-out-ui),
     transform var(--duration-instant) var(--ease-snappy);
 }
-.input {
-  width: 100%;
-  min-height: 44px;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-control);
-  background: var(--space-1);
-  color: var(--white);
-}
-.input::placeholder { color: var(--text-3); }
-.input:focus-visible { border-color: var(--nasa-blue-bright); }
 .btn:active:not(:disabled) {
-  transform: scale(0.975);
+  transform: scale(0.97);
 }
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.55;
 }
 .btn-sm {
   min-height: 36px;
   padding: 0 0.75rem;
   font-size: 0.8125rem;
 }
+.btn-icon {
+  width: 44px;
+  padding: 0;
+}
 .btn-primary {
-  background: var(--nasa-blue);
-  border-color: var(--nasa-blue-edge);
-  color: var(--white);
+  background: var(--accent-primary);
+  color: var(--on-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 0 24px -6px var(--accent-primary);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--nasa-blue-hover);
+  background: var(--accent-primary-hover);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 0 0 4px var(--accent-primary-glow),
+    0 0 32px -4px var(--accent-primary);
 }
-.btn-red {
-  background: var(--critical);
-  color: #2a0806;
+/* While an action runs, a light sweeps across the button. */
+.btn.working {
+  position: relative;
+  overflow: hidden;
 }
-.btn-red:hover:not(:disabled) {
-  background: #ffa39c;
+.btn.working:disabled {
+  opacity: 0.9;
+}
+.btn.working::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
+  transform: translate3d(-100%, 0, 0);
+  animation: sweep 1.4s ease-in-out infinite;
+}
+@keyframes sweep {
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
 }
 .btn-ghost {
-  border-color: var(--line-strong);
-  color: var(--white);
-  background: transparent;
+  border-color: var(--control-border);
+  color: var(--text-primary);
+  background: var(--glass-subcard);
 }
 .btn-ghost:hover:not(:disabled) {
-  background: var(--space-2);
-  border-color: var(--text-2);
+  background: var(--accent-primary-glow);
+  border-color: var(--glass-border-accent);
 }
 .btn-quiet {
-  color: var(--text-2);
+  color: var(--text-secondary);
   background: transparent;
 }
 .btn-quiet:hover:not(:disabled) {
-  background: var(--space-2);
-  color: var(--white);
+  background: var(--accent-primary-glow);
+  color: var(--text-primary);
+}
+.btn-danger {
+  border-color: var(--status-critical);
+  color: var(--status-critical);
+  background: var(--status-critical-glow);
+}
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-critical) 36%, transparent);
+  color: var(--text-primary);
 }
 
-.field {
-  height: 44px;
+.input {
   width: 100%;
-  padding: 0 0.75rem;
-  border: 1px solid var(--line-strong);
+  min-height: 44px;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
-  background: var(--space-deep);
-  color: var(--white);
+  background: var(--glass-subcard);
+  color: var(--text-primary);
   font-size: 0.9375rem;
-  transition: border-color var(--duration-fast) var(--ease-out-ui);
+  transition:
+    border-color var(--duration-fast) var(--ease-out-ui),
+    box-shadow var(--duration-fast) var(--ease-out-ui);
 }
-.field::placeholder {
-  color: var(--text-3);
+.input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
-.field:hover:not(:disabled) {
-  border-color: var(--text-2);
+.input:hover:not(:disabled) {
+  border-color: var(--text-secondary);
 }
-.field:disabled {
-  opacity: 0.5;
+.input:focus-visible {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px var(--accent-primary-glow);
+}
+.input[aria-invalid='true'] {
+  border-color: var(--status-critical);
 }
 
 .link {
-  color: var(--nasa-blue-bright);
+  color: var(--accent-primary);
   text-decoration: underline;
-  text-decoration-color: rgb(131 185 255 / 0.5);
+  text-decoration-color: var(--glass-border-accent);
   text-underline-offset: 3px;
   transition: text-decoration-color var(--duration-fast) var(--ease-out-ui);
 }
@@ -295,13 +456,72 @@
   top: -100px;
   z-index: 100;
   padding: 0.75rem 1rem;
-  background: var(--white);
-  color: var(--space-0);
+  background: var(--text-primary);
+  color: var(--bg-void);
   font-weight: 600;
   border-radius: var(--radius-control);
 }
 .skip-link:focus {
   top: 0.75rem;
+}
+
+/* Status badge: the status colour on its own glow. The word and icon inside carry the meaning. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.125rem 0.55rem;
+  border-radius: var(--radius-control);
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent);
+  background: var(--tone-glow, color-mix(in srgb, var(--tone) 16%, transparent));
+  color: var(--tone);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Tabs and navigation: the chosen section lights up amber, with a glowing underline. */
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  border-radius: var(--radius-control);
+  transition:
+    color var(--duration-fast) var(--ease-out-ui),
+    background-color var(--duration-fast) var(--ease-out-ui);
+}
+.tab:hover {
+  color: var(--text-primary);
+  background: var(--accent-primary-glow);
+}
+.tab[aria-selected='true'],
+.tab[aria-current='page'] {
+  color: var(--accent-primary);
+}
+.tab::after {
+  content: '';
+  position: absolute;
+  left: 0.875rem;
+  right: 0.875rem;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  box-shadow: none;
+  transform: scaleX(0);
+  transition: transform var(--duration-normal) var(--ease-out-ui);
+}
+.tab[aria-selected='true']::after,
+.tab[aria-current='page']::after {
+  transform: scaleX(1);
 }
 
 /* Data tables */
@@ -313,27 +533,45 @@
 .table th {
   padding: 0.5rem 0.75rem;
   text-align: left;
-  font-stretch: 84%;
+  font-stretch: 88%;
   font-weight: 500;
   font-size: 0.8125rem;
-  color: var(--text-3);
-  color: var(--text-2);
-  border-bottom: 1px solid var(--line-strong);
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--control-border);
   white-space: nowrap;
 }
 .table td {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--line);
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--glass-border);
   vertical-align: top;
 }
 .table tr:last-child td {
   border-bottom: 0;
 }
+.table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out-ui);
+}
+.table tbody tr:hover {
+  background: var(--glass-subcard);
+}
+
+/* Accordions open and close smoothly where the browser can animate to natural height; elsewhere they just open. */
+details::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition:
+    block-size var(--duration-deliberate) var(--ease-out-ui),
+    content-visibility var(--duration-deliberate) allow-discrete;
+}
+details[open]::details-content {
+  block-size: auto;
+}
 
 /* ───────────── Motion ───────────── */
 
-/* The one orchestrated moment: the stage readouts arrive after the suit does. */
-@keyframes rise-in {
+/* Widgets arrive: a staggered fade-up, ordered with --i. */
+@keyframes settle {
   from {
     opacity: 0;
     transform: translate3d(0, 10px, 0);
@@ -343,123 +581,9 @@
     transform: none;
   }
 }
-.stage-in {
-  animation: rise-in var(--duration-stage) var(--ease-out-ui) both;
-  animation-delay: calc(var(--i, 0) * 70ms + 120ms);
-}
-/* ───────────── Interaction language ─────────────
-   Everything that can be pressed answers the pointer, and everything that changes says so:
-   names rise into place, figures count up once, highlights slide between options, arrows lean toward
-   where they lead, a row flashes when its status changes. All of it is transform and opacity. */
-
-/* Headline reveal: the name rises out of a mask when the crew member changes. */
-.reveal {
-  display: block;
-  overflow: hidden;
-  padding-bottom: 0.1em;
-}
-.reveal > span {
-  display: inline-block;
-  animation: reveal-up 620ms var(--ease-out-ui) both;
-}
-@keyframes reveal-up {
-  from {
-    transform: translate3d(0, 108%, 0);
-  }
-  to {
-    transform: none;
-  }
-}
-/* Arrows lean toward where they lead. */
-.nudge {
-  transition: transform var(--duration-normal) var(--ease-out-ui);
-}
-.nudge-back {
-  transition: transform var(--duration-normal) var(--ease-out-ui);
-}
-.btn:hover:not(:disabled) .nudge-back {
-  transform: translate3d(-4px, 0, 0);
-}
-.nudge-host:hover .nudge,
-.nudge-host:focus-visible .nudge,
-.btn:hover:not(:disabled) .nudge {
-  transform: translate3d(4px, 0, 0);
-}
-.btn-primary:hover:not(:disabled) {
-  transform: translate3d(0, -1px, 0);
-}
-/* A row flashes once in its new status colour when its status changes. */
-@keyframes flash {
-  from {
-    opacity: 0.4;
-  }
-  to {
-    opacity: 0;
-  }
-}
-.flash {
-  animation: flash 1100ms ease-out both;
-}
-/* Body-check buttons */
-.zone-icon {
-  transition: transform var(--duration-normal) var(--ease-out-ui);
-}
-.zone-btn {
-  transition: background-color var(--duration-fast) var(--ease-out-ui);
-}
-.zone-btn:hover .zone-icon {
-  transform: scale(1.2);
-}
-.zone-heart {
-  animation: hb 1s ease-in-out infinite;
-}
-.avatar {
-  transition: transform var(--duration-normal) var(--ease-out-ui);
-}
-.row-btn:hover .avatar {
-  transform: scale(1.08);
-}
-/* Sections of the record rise into view once as they are scrolled to. */
-.on-scroll {
-  opacity: 0;
-  transform: translate3d(0, 16px, 0);
-  transition:
-    opacity 520ms var(--ease-out-ui),
-    transform 520ms var(--ease-out-ui);
-}
-.on-scroll.in {
-  opacity: 1;
-  transform: none;
-}
-/* Sliding highlight behind the chosen option of a switch. */
-.switch-hl {
-  transition: transform var(--duration-normal) var(--ease-out-ui);
-}
-/* Cancel-window countdown: the bar drains with a transform. */
-.drain {
-  transform-origin: left center;
-  transition: transform 260ms linear;
-}
-@media (prefers-reduced-motion: no-preference) {
-  html {
-    scroll-behavior: smooth;
-  }
-}
-
-/* Crew selection: the roster marker moves at once; the readings and suit markings settle together after it. */
-@keyframes settle {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 6px, 0);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 .settle {
-  animation: settle var(--duration-deliberate) var(--ease-out-ui) both;
-  animation-delay: 90ms;
+  animation: settle 420ms var(--ease-out-ui) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
 }
 @keyframes fade-in {
   from {
@@ -472,7 +596,7 @@
 .fade-in {
   animation: fade-in var(--duration-deliberate) var(--ease-out-ui) both;
 }
-/* Popovers and dialogs grow from their trigger corner. */
+/* Menus and toasts grow from their trigger corner. */
 @keyframes pop-in {
   from {
     opacity: 0;
@@ -487,6 +611,7 @@
   animation: pop-in var(--duration-normal) var(--ease-out-ui) both;
   transform-origin: var(--origin, top right);
 }
+/* A new alert drops in from above. */
 @keyframes alert-in {
   from {
     opacity: 0;
@@ -501,58 +626,117 @@
   animation: alert-in var(--duration-deliberate) var(--ease-out-ui) both;
 }
 
-/* Critical attention: an expanding ring, drawn with opacity + transform on a pseudo-element. */
-.pulse-critical {
-  position: relative;
+/* Ambient biometric motion */
+
+/* Heart icons beat: two quick swells, then rest, about 55 a minute. */
+@keyframes beat {
+  0%,
+  40%,
+  100% {
+    transform: scale(1);
+  }
+  10% {
+    transform: scale(1.18);
+  }
+  20% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.1);
+  }
 }
-.pulse-critical::after {
+.beat {
+  animation: beat 1.1s ease-in-out infinite;
+  transform-origin: center;
+}
+/* Sleep and recovery icons breathe: a slow rise and fall. */
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate3d(0, -1.5px, 0) scale(1.06);
+    opacity: 1;
+  }
+}
+.breathe {
+  animation: breathe 4s ease-in-out infinite;
+  transform-origin: center;
+}
+/* Status beacon: a solid dot with a ring that expands and fades while readings are current. */
+.beacon {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--status-nominal);
+  box-shadow: 0 0 10px var(--status-nominal);
+}
+.beacon::after {
   content: '';
   position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  border: 2px solid var(--critical);
-  opacity: 0;
-  pointer-events: none;
-  animation: ring 2s var(--ease-out-ui) infinite;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--status-nominal);
+  animation: beacon 2s var(--ease-out-ui) infinite;
 }
-@keyframes ring {
+@keyframes beacon {
   0% {
     opacity: 0.7;
     transform: scale(1);
   }
-  70%,
+  80%,
   100% {
     opacity: 0;
-    transform: scale(1.035, 1.3);
+    transform: scale(3.2);
   }
 }
-@keyframes live-dot {
+/* A critical surface breathes a faint rose light until it is dealt with. */
+@keyframes critical-pulse {
   0%,
   100% {
-    opacity: 1;
+    box-shadow:
+      var(--glass-specular),
+      0 0 36px -10px var(--status-critical-glow);
   }
   50% {
-    opacity: 0.35;
+    box-shadow:
+      var(--glass-specular),
+      0 0 44px 0 var(--status-critical-glow);
   }
 }
-.live-dot {
-  animation: live-dot 2s ease-in-out infinite;
+.critical-surface.pulse {
+  animation: critical-pulse 2.4s ease-in-out infinite;
 }
-@keyframes hb {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  12% {
-    transform: scale(1.22);
-  }
-  24% {
-    transform: scale(1);
-  }
-  36% {
-    transform: scale(1.12);
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+/* Saved: the ring draws, then the tick. */
+.check-ring {
+  stroke-dasharray: 63;
+  stroke-dashoffset: 63;
+  animation: draw 420ms var(--ease-out-ui) forwards;
+}
+.check-tick {
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation: draw 280ms var(--ease-out-ui) 320ms forwards;
+}
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+/* The agent is writing. */
 @keyframes typing {
   0%,
   60%,
@@ -569,6 +753,7 @@
   display: inline-block;
   width: 6px;
   height: 6px;
+  margin-right: 3px;
   border-radius: 50%;
   background: currentColor;
   animation: typing 1.2s var(--ease-out-ui) infinite;
@@ -581,46 +766,199 @@
 }
 @keyframes shimmer {
   from {
-    opacity: 0.5;
+    opacity: 0.4;
   }
   to {
     opacity: 1;
   }
 }
 .skeleton {
-  background: var(--space-1);
-  border-radius: var(--radius-panel);
+  background: var(--glass-subcard);
+  border-radius: var(--radius-control);
   animation: shimmer 0.9s ease-in-out infinite alternate;
 }
-
-/* Meter fill grows with a transform, never with width. */
-.meter-fill {
-  transform-origin: left center;
-  transition: transform var(--duration-deliberate) var(--ease-out-ui);
+/* Arrows lean toward where they lead. */
+.nudge {
+  transition: transform var(--duration-normal) var(--ease-out-ui);
+}
+.nudge-host:hover .nudge,
+.nudge-host:focus-visible .nudge {
+  transform: translate3d(4px, 0, 0);
 }
 
-/* ───────────── Charts ───────────── */
 
-.recharts-cartesian-grid line {
-  stroke: var(--line);
+/* ───────────── Buttons in motion ───────────── */
+
+/* Buttons retain a quiet pressed state. */
+.btn:active:not(:disabled) { transform: scale(0.99); }
+/* The chosen option of a segmented control or toggle. */
+.seg-on {
+  background: var(--accent-primary-glow);
+  border-color: var(--glass-border-accent);
+  color: var(--accent-primary);
 }
-.recharts-text {
-  fill: var(--text-2);
-  font-size: 12px;
-  font-family: var(--font-sans);
-  font-stretch: 84%;
+/* The live-stream button glows while the stream runs. */
+.live-btn {
+  background: var(--status-nominal-glow);
+  border-color: var(--status-nominal);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+/* Scenario presets: a hairline in the scenario's own status colour, filled when chosen. */
+.scenario-on {
+  background: color-mix(in srgb, var(--tone) 20%, transparent);
+  border-color: var(--tone);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+/* ───────────── Telemetry deck ───────────── */
+
+/* Instrument screen: a faint measurement grid behind the oscilloscope and the 3D viewport. */
+.scope {
+  background-color: color-mix(in srgb, var(--bg-void) 70%, transparent);
+  background-image:
+    linear-gradient(var(--glass-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--glass-border) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 35%, var(--accent-primary-glow), transparent 65%);
+  background-size: 28px 28px, 28px 28px, 100% 100%;
+  border: 1px solid var(--glass-border);
+}
+/* The oscilloscope's beam head: a bright edge with a halo trailing behind it. */
+.beam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -18px;
+  width: 18px;
+  background: linear-gradient(90deg, transparent, var(--accent-primary-glow) 70%, var(--accent-primary));
+  opacity: 0.85;
+  pointer-events: none;
+  will-change: transform;
+}
+/* A live metric card: its status colour runs down the leading edge; the chosen one is ringed in amber. */
+.metric {
+  border-left: 2px solid var(--tone);
+  cursor: pointer;
+}
+.metric-on {
+  background: var(--glass-surface-hover);
+  border-color: var(--glass-border-accent);
+  border-left-color: var(--tone);
+  box-shadow:
+    var(--glass-specular),
+    0 0 0 1px var(--accent-primary-glow),
+    0 0 28px -8px var(--accent-primary);
+}
+/* Callout pins that ride on the 3D suit. */
+.pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--pin, var(--status-nominal));
+  background: var(--glass-hud-floating);
+  color: var(--text-primary);
+  font-size: 0.6875rem;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 12px -2px var(--pin, var(--status-nominal));
+  transition: opacity var(--duration-fast) linear;
+  will-change: transform;
 }
-.recharts-wrapper:focus,
-.recharts-surface:focus {
-  outline: none;
+.pin[data-status='warning'] { --pin: var(--status-warning); }
+.pin[data-status='critical'] { --pin: var(--status-critical); }
+.pin[data-status='fault'] { --pin: var(--status-fault); }
+.pin-on {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--on-accent);
+}
+
+/* Pipeline: stages light up as data reaches them, and packets travel the links between. */
+.stage {
+  transition: border-color var(--duration-normal) var(--ease-out-ui), box-shadow var(--duration-normal) var(--ease-out-ui);
+  opacity: 0.72;
+}
+.stage-on {
+  opacity: 1;
+  border-color: var(--glass-border-accent);
+  box-shadow: 0 0 24px -10px var(--accent-primary);
+}
+.link-flow {
+  position: relative;
+  flex: none;
+  align-self: center;
+  width: 2px;
+  height: 20px;
+  margin-inline: auto;
+  background: var(--glass-border);
+  overflow: hidden;
+}
+@media (min-width: 64rem) {
+  .link-flow {
+    width: 36px;
+    height: 2px;
+    margin: 0;
+  }
+}
+.link-flow i {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(var(--flow-dir, 180deg), transparent, var(--accent-primary), transparent);
+  opacity: 0;
+}
+@media (min-width: 64rem) {
+  .link-flow i { --flow-dir: 90deg; }
+}
+.link-flow.flowing i {
+  opacity: 1;
+  animation: packet 1.5s linear infinite;
+}
+.link-flow.flowing i:nth-child(2) { animation-delay: 0.5s; }
+.link-flow.flowing i:nth-child(3) { animation-delay: 1s; }
+@keyframes packet {
+  from { transform: translate3d(0, -100%, 0); }
+  to { transform: translate3d(0, 100%, 0); }
+}
+@media (min-width: 64rem) {
+  @keyframes packet {
+    from { transform: translate3d(-100%, 0, 0); }
+    to { transform: translate3d(100%, 0, 0); }
+  }
+}
+
+/* Animated instrument icons */
+.icon-heart {
+  animation: beat var(--beat, 1s) ease-in-out infinite;
+  transform-origin: center;
+}
+.icon-lungs .lobe {
+  animation: lobe var(--breath, 4s) ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: top center;
+}
+@keyframes lobe {
+  0%, 100% { transform: scale(0.9); }
+  50% { transform: scale(1.06); }
+}
+.icon-orbit .satellite {
+  animation: spin 6s linear infinite;
+  transform-origin: 12px 12px;
+}
+.icon-reticle {
+  animation: spin 2.4s linear infinite;
+  transform-origin: center;
+}
 }
 
 /*
- * Reduced motion, tiered rather than all-or-nothing:
- *  - spatial movement (rise, pop, pulse rings, bouncing dots) is removed;
- *  - short opacity changes that explain a state change stay, at 100ms;
- *  - the 3D stage holds a still pose (handled in the scene component).
+ * Reduced motion: movement and looping ambient motion are removed; short fades that explain a change stay.
  */
 @media (prefers-reduced-motion: reduce) {
   :root {
@@ -628,51 +966,78 @@
     --duration-fast: 0.001ms;
     --duration-normal: 100ms;
     --duration-deliberate: 100ms;
-    --duration-stage: 100ms;
-  }
-  html {
-    scroll-behavior: auto !important;
   }
   *,
   *::before,
   *::after {
-    animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     animation-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
-  .on-scroll {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-  .reveal > span,
-  .zone-heart,
-  .flash {
-    animation: none !important;
-  }
-  .flash {
-    opacity: 0;
-  }
-  .nudge-host:hover .nudge,
-  .btn:hover:not(:disabled) .nudge,
-  .btn-primary:hover:not(:disabled),
-  .zone-btn:hover .zone-icon,
-  .row-btn:hover .avatar {
-    transform: none;
-  }
-  .stage-in,
   .settle,
   .pop-in,
   .alert-in,
   .fade-in {
     animation: fade-in 100ms ease-out both !important;
   }
-  .btn:active:not(:disabled) {
+  .beat,
+  .breathe,
+  .skeleton,
+  .typing i,
+  .beacon::after,
+  .critical-surface.pulse,
+  .btn.working::after {
+    animation: none !important;
+  }
+  .breathe,
+  .typing i {
+    opacity: 1;
+  }
+  .check-ring,
+  .check-tick {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+  .lift:hover,
+  .btn:active:not(:disabled),
+  .nudge-host:hover .nudge {
     transform: none;
   }
-  .pulse-critical::after {
-    animation: none !important;
-    opacity: 0.7;
+  details::details-content {
+    transition: none;
   }
+  .icon-heart,
+  .icon-lungs .lobe,
+  .icon-orbit .satellite,
+  .icon-reticle,
+  .link-flow.flowing i,
+  .btn::before {
+    animation: none !important;
+    transition: none !important;
+  }
+  .btn:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Keep dense instruments readable on narrow screens. */
+main, section, article, .panel, .well, [role='tabpanel'] { min-width: 0; }
+.panel, .well, .hud { overflow-wrap: anywhere; }
+.lift:hover { transform: translateY(-1px); box-shadow: var(--glass-specular), var(--glass-shadow); }
+.glow-accent { text-shadow: none; }
+.metric-on, .stage-on { box-shadow: var(--glass-specular); }
+.pin { box-shadow: none; }
+.btn-primary, .btn-primary:hover { box-shadow: var(--glass-specular); }
+.tab[aria-selected='true']::after { box-shadow: none; }
+@media (max-width: 639px) {
+  .hud-bar .brand-name { display: none; }
+  .suit-controls { align-items: stretch; }
+  .suit-controls > [role='group'] { flex: 1 1 100%; }
+  .suit-controls > [role='group'] .btn { flex: 1; min-width: 0; }
+  .hud-bar .tab { padding-inline: 10px; }
+  .btn { white-space: normal; text-align: center; }
+  .label { overflow-wrap: anywhere; }
+  .panel { padding-inline: 12px; }
+  table { font-size: 0.75rem; }
+  th, td { padding-inline: 8px; }
 }

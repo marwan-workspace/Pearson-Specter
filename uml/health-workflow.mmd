@@ -1,49 +1,105 @@
+---
+query: "i want the mermaid code how to get it "
+references:
+  - "File: /AGENTS.md"
+  - |+
+    Reference: <skills>
+    Here is a list of skills that contain domain specific knowledge on a variety of topics.
+    Each skill comes with a description of the topic and a file path that contains the detailed instructions.
+    When a user asks you to perform a task that falls within the domain of a skill, use the #tool:read/readFile tool to acquire the full instructions from the file URI.
+    <skill>
+    <name>typescript-setup</name>
+    <description>How to set up a new TypeScript project</description>
+    <file>c:\Users\user\AppData\Local\Programs\Microsoft VS Code\69047191fc\resources\app\extensions\TypeScriptTeam.jsts-chat-features\skills\typescript-setup\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>typescript-update</name>
+    <description>Guidance for updating to the newer versions of TypeScript. Use this when you need to upgrade TypeScript or as part of a larger dependency update process.</description>
+    <file>c:\Users\user\AppData\Local\Programs\Microsoft VS Code\69047191fc\resources\app\extensions\TypeScriptTeam.jsts-chat-features\skills\typescript-update\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>agent-customization</name>
+    <description>**WORKFLOW SKILL** — Create, update, review, fix, or debug VS Code agent customization files (.instructions.md, .prompt.md, .agent.md, SKILL.md, copilot-instructions.md, AGENTS.md). USE FOR: saving coding preferences; troubleshooting why instructions/skills/agents are ignored or not invoked; configuring applyTo patterns; defining tool restrictions; creating custom agent modes or specialized workflows; packaging domain knowledge; fixing YAML frontmatter syntax. DO NOT USE FOR: general coding questions (use default agent); runtime debugging or error diagnosis; MCP server configuration (use MCP docs directly); VS Code extension development. INVOKES: file system tools (read/write customization files), ask-questions tool (interview user for requirements), subagents for codebase exploration. FOR SINGLE OPERATIONS: For quick YAML frontmatter fixes or creating a single file from a known pattern, edit the file directly — no skill needed.</description>
+    <file>c:\Users\user\AppData\Local\Programs\Microsoft VS Code\69047191fc\resources\app\extensions\copilot\assets\prompts\skills\agent-customization\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>chronicle</name>
+    <description>Analyze Copilot session history for standup reports, usage tips, session search, and session reindexing. Use when the user asks for a standup, daily summary, usage tips, workflow recommendations, wants to search or find past sessions by keyword/file/PR, wants to reindex their session store, or asks about deleting session data.</description>
+    <file>c:\Users\user\AppData\Local\Programs\Microsoft VS Code\69047191fc\resources\app\extensions\copilot\assets\prompts\skills\chronicle\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>python-fact-grounded-coding</name>
+    <description>Use when the user explicitly asks for the Python fact-grounded coding skill, or when a Python coding, debugging, explanation, or bug-fix task should be grounded in verified Pylance facts, runtime values, diagnostics, selected interpreter state, tests, or debugger evidence before changing code or reporting a conclusion.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\python-fact-grounded-coding\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>python-type-inference</name>
+    <description>Use when the user explicitly asks for the Python type inference skill, or when a task needs the single correct type for a specific Python symbol — a function return, parameter, module-level value, or class/instance field — and that type must be verified against real code rather than guessed. This is the shared core used by the type-annotation and stub-writing skills.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\python-type-inference\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>python-add-type-annotations</name>
+    <description>Use when the user explicitly asks for the Python type annotation skill, or when they want to make their own Python source type-safe by adding inline type annotations to one file, a set of files, or a package/workspace in bulk — annotating function return types, parameters, module-level and class-level variables/constants (including dataclass and similar fields), validating diagnostics against a baseline, and reporting newly surfaced type errors.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\python-add-type-annotations\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>python-write-stubs</name>
+    <description>Use when the user explicitly asks for the Python stub-writing skill, wants to create or improve `.pyi` type stubs for a third-party Python package, or needs partial stubs under a workspace `typings/` directory without modifying installed package source. Generates stubs through Pylance, resolves uncertain types with the Python type-inference skill, and validates public API, diagnostics, runtime compatibility, and type completeness.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\python-write-stubs\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>pylance-docs</name>
+    <description>Use when the user explicitly asks for the Pylance docs skill, or when an answer depends on current official Pylance documentation for settings, diagnostics, configuration, troubleshooting, feature behavior, or supported workflows.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\pylance-docs\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>pylance-refactoring</name>
+    <description>Use when the user explicitly asks for the Pylance refactoring skill, or when they want named automated Python refactorings applied to one file, many files, a workspace, a folder subset, or a composed cleanup workflow such as workspace-wide unused-import cleanup, wildcard-import conversion followed by unused-import cleanup, inferred type annotations, or Pylance fix-all.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\pylance-refactoring\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>pylance-python-profiling</name>
+    <description>Use when the user wants to profile Python code with Pylance: capture CPU time (Tachyon), trace calls (sys.monitoring), or memory (Memray); profile a whole run or a specific region between two source locations; add sub-region markers; and explore the resulting profile (hot functions, call trees, time slices). Also use for the 3.15+ interpreter requirement and related error guidance.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\pylance-python-profiling\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>add-python-version-support</name>
+    <description>Guide changes required when a project adds a newer Python version above its current tested ceiling while preserving its existing minimum. Use when asked to support, test, certify, or prepare for a newer Python release at the upper end of the support range without dropping existing runtimes.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\add-python-version-support\SKILL.md</file>
+    </skill>
+    <skill>
+    <name>drop-python-version-support</name>
+    <description>Guide changes required when a project drops one or more oldest supported Python versions and raises its minimum supported version. Use when asked to remove the oldest supported runtimes, raise the minimum Python requirement, modernize code after raising the Python floor, or upgrade/migrate by replacing older runtimes.</description>
+    <file>c:\Users\user\.vscode\extensions\ms-python.vscode-pylance-2026.4.1\skills\drop-python-version-support\SKILL.md</file>
+    </skill>
+    </skills>
+
+
+    <agents>
+    Here is a list of agents that can be used when running a subagent.
+    Each agent has optionally a description with the agent's purpose and expertise. When asked to run a subagent, choose the most appropriate agent from this list.
+    Use the #tool:agent/runSubagent tool with the agent name to run the subagent.
+    <agent>
+    <name>Explore</name>
+    <description>Fast read-only codebase exploration and Q&amp;A subagent. Prefer over manually chaining multiple search and file-reading operations to avoid cluttering the main conversation. Safe to call in parallel. Specify thoroughness: quick, medium, or thorough.</description>
+    <argumentHint>Describe WHAT you're looking for and desired thoroughness (quick/medium/thorough)</argumentHint>
+    </agent>
+    </agents>
+
+generationTime: 2026-11-13T15:15:01.191Z
+---
 flowchart TD
-    V[Simulated or watch vitals] --> S[Store timestamped sample]
-    S --> M[Python watch worker detects flags and activity]
-    M --> D[Apply configured rule response and record decision]
-    D --> T{Response tier}
-
-    T -->|Tier 1| A[Create cancellable dose proposal]
-    A --> X{Reviewed quantity and stock available?}
-    X -->|Yes, after cancel window| I[Record administration and decrement inventory]
-    X -->|No| U[Mark dose unavailable and notify crew]
-    A -->|Astronaut cancels in time| C[Cancel dose proposal]
-    I --> H{Was the patient acting leader?}
-    H -->|Yes| CH[Move command to next fit crew member and log handover]
-    H -->|No| E[Monitor event]
-    U --> E
-    C --> E
-    CH --> E
-
-    T -->|Tier 2| P[Send dose decision to astronaut's decider]
-    P -->|Approve with reviewed dose and stock| PC[Ask astronaut to confirm]
-    PC -->|Confirm| E
-    P -->|Reject| E
-    P -->|Wait 60 s| PE[Escalate that decision one position]
-
-    T -->|Tier 3| N[Alert crew with first-response instructions]
-    N -->|Decider approves, stock and dose available| G[Alerted crewmate records administration]
-    N -->|Wait 60 s| G
-    G --> E
-
-    subgraph Daily health review
-        SL[Sleep record] --> CI[Daily check-in]
-        VH[24-hour vitals] --> CI
-        MH[Mental-health answers] --> CI
-        CI --> RC[Manager agent assesses root cause]
-        RC --> TP[Save treatment plan and items]
-        TP --> AP[Queue plan items for the astronaut's decider]
-    end
-    E --> CI
-
-    subgraph Reports to mission command
-        ER[Emergency report] --> Q{Earth link available?}
-        WR[Acting leader creates weekly report] --> Q
-        Q -->|No| OFF[Keep report queued]
-        Q -->|Yes| SEND[Dispatch report and set Earth arrival time]
-        OFF -->|Link restored| SEND
-        SEND --> RT[Round-trip delay plus review interval]
-        RT --> ACK[Store simulated acknowledgment]
-    end
-    E --> ER
+    Start(["Start"]) --> Capture["Collect vitals and check-in"]
+    Capture --> Assess["Create health assessment"]
+    Assess --> Condition{"Condition needs attention?"}
+    Condition -->|No| Store["Store health data"]
+    Store --> Report["Include data in mission report"]
+    Condition -->|Yes| Evaluate["Evaluate applicable rules"]
+    Evaluate --> Decision["Record decision"]
+    Decision --> Alert["Send crew alert"]
+    Decision --> Treatment["Create treatment plan"]
+    Alert --> Acknowledge["Record alert acknowledgement"]
+    Treatment --> Track["Track treatment and medication"]
+    Acknowledge --> Store
+    Track --> Store
+    Report --> Finish(["Complete"])

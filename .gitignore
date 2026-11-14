@@ -1,10 +1,11 @@
 .env
 .venv
+.venv-windows/
 raw.zip
 __pycache__/
 .venv-graphify/
 node_modules
-package.json
-package-lock.json
+/package.json
+/package-lock.json
 graphify-out
 .vscode/settings.json

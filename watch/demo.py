@@ -5,7 +5,7 @@ Without GEMINI_API_KEY the LLM step fails and the rules answer instead (source =
 from watch.decide import RULES, decide
 from watch.detect import classify, flags, load
 
-CALM = {"hr_mean": 70, "hr_std": 1.5, "acc_std": 1.2, "eda_mean": 0.3, "eda_slope": 0.0, "temp_mean": 32.0,
+CALM = {"hr_mean": 70, "hr_std": 1.5, "acc_std": 1.2, "eda_mean": 0.3, "eda_slope": 0.0, "temp_mean": 32.0, "temp": 36.8,
         "bp_sys": 118, "bp_dia": 76, "spo2": 98, "radiation": 1.5, "location": "iss"}
 SCENARIOS = {
     "resting, all normal": {},

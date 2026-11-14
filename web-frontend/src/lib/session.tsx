@@ -10,6 +10,7 @@ export interface SessionMe {
   mission: { id: string; name: string; destination: string; earthLinkAvailable?: boolean; earthRoundTripSeconds?: number; earthReviewSeconds?: number };
 }
 
+
 export async function backendRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/backend${path}`, {
     ...init,

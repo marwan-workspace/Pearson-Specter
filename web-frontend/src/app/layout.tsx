@@ -1,24 +1,26 @@
 import type { Metadata, Viewport } from 'next';
-import { preload } from 'react-dom';
 import './globals.css';
-import { BackendShell } from '@/components/BackendShell';
+import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
   title: { default: 'Crew Health', template: '%s · Crew Health' },
   description: 'Astronaut health monitoring for deep-space missions: live vitals, sleep, mental health, medication and an onboard medical agent.',
 };
 
-export const viewport: Viewport = { themeColor: '#091426', colorScheme: 'dark' };
+export const viewport: Viewport = {
+  themeColor: [{ media: '(prefers-color-scheme: dark)', color: '#07080B' }, { media: '(prefers-color-scheme: light)', color: '#f3f6fb' }],
+};
+
+// Runs before first paint so a remembered light theme never flashes dark. Dark is the default.
+const themeScript = `try{if(localStorage.getItem('crew-health-theme')==='light')document.documentElement.dataset.theme='light'}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // Start downloading the 3.4 MB suit model with the HTML, instead of after three.js has loaded and parsed.
-  // The Draco decoder unpacks it; fetch both alongside rather than after the model arrives.
-  for (const href of ['/models/emu.glb', '/draco/draco_wasm_wrapper.js', '/draco/draco_decoder.wasm']) preload(href, { as: 'fetch', crossOrigin: 'anonymous' });
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
       <body>
         <a href="#main" className="skip-link">Skip to content</a>
-        <BackendShell>{children}</BackendShell>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

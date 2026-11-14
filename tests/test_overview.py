@@ -1,4 +1,4 @@
-"""python -m unittest discover tests"""
+"""python -m unittest discover tests   (RUN_LIVE_TESTS=1 also runs the Gemini tests)"""
 import json
 import os
 import subprocess
@@ -6,7 +6,7 @@ import sys
 import unittest
 from pathlib import Path
 
-import llm  # noqa: F401  (loads GEMINI_API_KEY from .env for the live test)
+import llm  # noqa: F401  (loads GEMINI_API_KEY from .env for the live test, run with RUN_LIVE_TESTS=1)
 from overview import agent
 
 ROOT = Path(__file__).parent.parent
@@ -46,6 +46,11 @@ class OverviewTest(unittest.TestCase):
         day = {**DAY, "watchEvents": [{"condition": "shock", "tier": 1}]}
         self.assertEqual(agent.assess(day, says(ASSESSMENT))["urgency"], "urgent")
         self.assertEqual(agent.assess(DAY, says(ASSESSMENT))["urgency"], "routine")
+
+    def test_critical_condition_event_row_is_never_a_routine_day(self):
+        # what backend/server.js really sends: condition_events rows, which carry severity and no tier
+        row = {"condition_key": "shock", "severity": "critical", "status": "open", "reported_by": "watch"}
+        self.assertEqual(agent.assess({**DAY, "watchEvents": [row]}, says(ASSESSMENT))["urgency"], "urgent")
 
     def test_checkin_scores_mental_health_like_the_frontend(self):
         out = agent.checkin(CHECKIN, says(CHECKIN_REPLY))
@@ -88,7 +93,7 @@ class OverviewTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("missing: decision", out["error"])
 
-    @unittest.skipUnless(os.environ.get("GEMINI_API_KEY"), "needs GEMINI_API_KEY")
+    @unittest.skipUnless(os.environ.get("RUN_LIVE_TESTS") == "1", "set RUN_LIVE_TESTS=1 to call Gemini (uses quota)")
     def test_real_gemini_assessment(self):
         out = agent.assess(DAY)
         self.assertTrue(out["rootCause"]["problem"] and out["plan"])

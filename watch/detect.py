@@ -117,7 +117,7 @@ def flags(reading, baselines, thresholds):
     location = str(r.get("location", "")).lower()
     # a missing or NaN vital compares False against every limit, which would read as healthy
     if location not in baselines["radiation_high"] or any(
-            not isinstance(r.get(k), Real) or not math.isfinite(r[k]) for k in ("hr_mean", "bp_sys", "spo2", "radiation")):
+            not isinstance(r.get(k), Real) or not math.isfinite(r[k]) for k in ("hr_mean", "bp_sys", "spo2", "radiation", "temp")):
         return ["sensor_fault"]
     checks = {
         "hr_low": r["hr_mean"] < t["hr_low"],
@@ -127,6 +127,7 @@ def flags(reading, baselines, thresholds):
         "bp_low": t["bp_sys_shock"] <= r["bp_sys"] < t["bp_sys_low"],
         "bp_high": r["bp_sys"] > t["bp_sys_high"],
         "radiation_high": r["radiation"] > baselines["radiation_high"][location],
+        "temp_high": r["temp"] > t["temp_high"],  # core body temperature, not the wristband's temp_mean
     }
     return [name for name, hit in checks.items() if hit]
 
