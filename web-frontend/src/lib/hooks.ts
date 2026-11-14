@@ -11,7 +11,9 @@ export function usePoll(fn: () => void | Promise<void>, ms: number, key: unknown
     const tick = async () => { if (running) return; running = true; try { await latest.current(); } finally { running = false; } };
     void tick();
     const t = setInterval(() => { if (!document.hidden) void tick(); }, ms);
-    return () => clearInterval(t);
+    const visible = () => { if (!document.hidden) void tick(); };
+    document.addEventListener('visibilitychange', visible);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', visible); };
   }, [ms, key]);
 }
 

@@ -46,7 +46,8 @@ function CrewCard({ member, isLeader, now, i }: { member: CrewMember; isLeader: 
           <Reading label="Temp" value={num(v?.temperature_c, 1)} unit="°C" />
         </dl>
         <div className="mt-auto flex flex-wrap items-center gap-2">
-          {member.openEvents > 0 ? <Pill tone="critical">{member.openEvents} open {member.openEvents === 1 ? 'event' : 'events'}</Pill> : <Pill tone="nominal">No open events</Pill>}
+          {member.openEvents > 0 ? <Pill tone={member.activeEvents?.some(e=>e.reported_by==='watch'&&e.severity==='critical')?'critical':'warning'}>{member.openEvents} unresolved {member.openEvents === 1 ? 'event' : 'events'}</Pill> : <Pill tone="nominal">No open events</Pill>}
+          {member.openEvents > 0 && v?.flags?.length === 0 && !fault && <span className="label">Watch within limits · event review pending</span>}
           {fault && <Pill tone="fault">Sensor {v.sensor_status}</Pill>}
           <span className="label ml-auto flex items-center gap-1.5">
             {!v ? 'No readings yet' : stale ? <>Stale · {timeAgo(v.observed_at, now)}</> : <><span className="beacon" aria-hidden />Live · {timeAgo(v.observed_at, now)}</>}
@@ -87,16 +88,11 @@ export function CrewOverview() {
 
   const refresh = useCallback(async () => {
     try {
-      const [c, d, r, cmd] = await Promise.all([
-        backendRequest<{ crew: CrewMember[] }>('/crew/overview'),
-        backendRequest<{ items: Decision[] }>('/decisions/pending'),
-        backendRequest<{ items: Report[] }>('/reports'),
-        backendRequest<CommandInfo>('/command'),
-      ]);
-      setCrew(c.crew); setDecisions(d.items); setReports(r.items); setCommand(cmd); setError('');
+      const snapshot = await backendRequest<{ crew: CrewMember[]; decisions: Decision[]; reports: Report[]; command: CommandInfo }>('/dashboard');
+      setCrew(snapshot.crew); setDecisions(snapshot.decisions); setReports(snapshot.reports); setCommand(snapshot.command); setError('');
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not load mission data.'); }
   }, []);
-  usePoll(refresh, 2000);
+  usePoll(refresh, 5000);
 
   /** Runs one leader action: marks it busy, reports the outcome in a toast, then reloads. */
   async function run(key: string, done: string, path: string, body: object, alsoMe = false) {
@@ -133,7 +129,7 @@ export function CrewOverview() {
   const mission = command?.mission;
   const location = (mission?.destination || me.mission.destination || '').toLowerCase();
   const openEvents = crew?.reduce((n, c) => n + c.openEvents, 0) ?? 0;
-  const week = () => ({ periodStart: new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10), periodEnd: new Date().toISOString().slice(0, 10) });
+  const week = () => ({ periodStart: new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10), periodEnd: new Date().toISOString().slice(0, 10) });
 
   return (
     <div className="grid gap-6">

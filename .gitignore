@@ -9,3 +9,4 @@ node_modules
 /package-lock.json
 graphify-out
 .vscode/settings.json
+.runtime/

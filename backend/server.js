@@ -2,12 +2,19 @@ import './env.js';
 import http from 'node:http';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { saveWatchResult } from './watch-save.js';
+import { HttpError, isDate, uuid, objectBody, agentInput, RateLimiter } from './validation.js';
+import { buildInfo } from './build-info.js';
+import { saveCheckin } from './checkin-store.js';
+import { gzipSync } from 'node:zlib';
+import { readRecord, readTable } from './records.js';
+import { dashboard, related } from './read-model.js';
+import { AgentJobs } from './agent-jobs.js';
 
 const { Pool } = pg;
 const scrypt = promisify(scryptCb);
@@ -16,18 +23,20 @@ const ROOT = path.resolve(HERE, '..');
 const PORT = Number(process.env.PORT || 8000);
 const COOKIE = 'crew_session';
 const SESSION_MS = 12 * 60 * 60 * 1000;
+const loginLimits=new RateLimiter(30);
 // Leave headroom in the hosted session pool for other clients and maintenance.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, application_name: 'crew-api' });
 const watchPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, application_name: 'crew-watch' });
 pool.on('error',e=>console.error('idle db client error:',e.message)); watchPool.on('error',e=>console.error('idle watch db client error:',e.message)); // the pooler drops idle connections; without this the process crashes
 for (const p of [pool, watchPool]) p.on('connect', client => client.on('error', e => console.error('db client error:', e.message))); // a reset mid-query fails that request instead of crashing the server
 
-class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const sha256 = (v) => createHash('sha256').update(v).digest('hex');
 const iso = (v) => v instanceof Date ? v.toISOString() : v;
 const json = (res, status, value, headers = {}) => {
-  const body = JSON.stringify(value);
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
+  let body = JSON.stringify(value);
+  const encoding=res.getHeader('x-use-gzip');res.removeHeader('x-use-gzip');
+  if(encoding && Buffer.byteLength(body)>1024){body=gzipSync(body);headers['content-encoding']='gzip';}
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', vary:'Accept-Encoding', ...headers });
   res.end(body);
 };
 const cookie = (res, value, maxAge) => res.setHeader('set-cookie', `${COOKIE}=${value}; Path=/backend; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
@@ -36,7 +45,8 @@ const parseBody = async (req) => {
   const chunks = []; let size = 0;
   for await (const chunk of req) { size += chunk.length; if (size > 1_000_000) throw new HttpError(413, 'Request body is too large.'); chunks.push(chunk); }
   if (!chunks.length) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new HttpError(400, 'Request body must be valid JSON.'); }
+  let data;try { data=JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new HttpError(400, 'Request body must be valid JSON.'); }
+  return objectBody(data);
 };
 const pinHash = async (pin, salt = randomBytes(16).toString('hex')) => `scrypt$${salt}$${(await scrypt(pin, salt, 64)).toString('hex')}`;
 const pinMatches = async (pin, encoded) => {
@@ -67,14 +77,16 @@ const runPython = (args, input, timeoutMs = 65_000) => new Promise((resolve, rej
 
 async function appTransaction(token, fn, readOnly = false) {
   const c = await pool.connect();
+  let releaseError;
   try {
     // The whole session setup goes to the database as ONE message: with a remote database every round trip
     // costs a third of a second, and this ran five of them on every request. The statements still run in order.
     // tokenHash is safe to inline: sha256() always yields exactly 64 hex characters, whatever the cookie held.
     if (!token) await c.query('BEGIN; SET LOCAL ROLE app_user');
     else {
-      const tokenHash = sha256(token);
-      const results = await c.query(`BEGIN; SET LOCAL ROLE app_user;
+      const tokenHash = typeof token==='string'?sha256(token):token.sessionHash;
+      if(!/^[a-f0-9]{64}$/.test(tokenHash))throw new HttpError(401,'Please sign in again.');
+      const results = await c.query(`BEGIN${readOnly?' READ ONLY':''}; SET LOCAL ROLE app_user;
         SELECT set_config('app.session_hash', '${tokenHash}', true);
         SELECT set_config('app.astronaut_id', COALESCE((SELECT astronaut_id::text FROM sessions
           WHERE token_hash='${tokenHash}' AND expires_at > now()), ''), true);
@@ -86,18 +98,15 @@ async function appTransaction(token, fn, readOnly = false) {
       c.astronaut = a.rows[0];
     }
     const out = await fn(c);
-    // A read has nothing to lose, so its COMMIT is not awaited: that saves one remote round trip (~350 ms) per poll.
-    // pg queues queries per client, so whoever borrows this client next still runs after the COMMIT.
-    if (readOnly) c.query('COMMIT').catch(() => {});
-    else await c.query('COMMIT');
+    await c.query('COMMIT');
     return out;
-  } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; }
-  finally { c.release(); }
+  } catch (e) { try {await c.query('ROLLBACK');} catch(error){releaseError=error;} throw e; }
+  finally { c.release(releaseError); }
 }
 
 async function watchTransaction(fn) {
   const c = await watchPool.connect();
-  try { await c.query('BEGIN'); await c.query('SET LOCAL ROLE watch_service'); const out = await fn(c); await c.query('COMMIT'); return out; }
+  try { await c.query('BEGIN; SET LOCAL ROLE watch_service'); const out = await fn(c); await c.query('COMMIT'); return out; }
   catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; }
   finally { c.release(); }
 }
@@ -138,49 +147,17 @@ async function login(body, res) {
   return { ok: true, ...result };
 }
 
-// An astronaut's record streams: table and the time column each is paged by with ?since=.
-const STREAMS = {
-  vitals: ['vital_samples', 'observed_at'], sleep: ['sleep_sessions', 'started_at'], mental: ['check_ins', 'completed_at'],
-  checkins: ['check_ins', 'started_at'], assessment: ['health_assessments', 'assessed_at'], plan: ['treatment_plans', 'created_at'],
-  medications: ['medication_events', 'proposed_at'], labs: ['lab_results', 'collected_at'], events: ['condition_events', 'started_at'], decisions: ['decisions', 'decided_at'],
-};
-// ISO times pass through as given (Postgres keeps microseconds; cutting the cursor to milliseconds re-sent the newest
-// row every poll); any other date Date.parse accepts is normalised, so Postgres never sees a format it rejects
-const sinceParam = (v) => !v || !Number.isFinite(Date.parse(v)) ? null : /^\d{4}-\d{2}-\d{2}T/.test(v) ? v : new Date(v).toISOString();
-/** One stream's rows for astronaut $1, newer than `since` (an SQL placeholder holding a timestamp or NULL). */
-const streamSql = (name, since) => name === 'plan'
-  ? `SELECT p.*,COALESCE(jsonb_agg(jsonb_build_object('id',i.id,'position',i.position,'action_type',i.action_type,
-      'description',i.description,'status',i.status,'starts_at',i.starts_at,'ends_at',i.ends_at) ORDER BY i.position) FILTER (WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
-      FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
-      WHERE p.astronaut_id=$1 AND (${since} IS NULL OR p.created_at>${since}) GROUP BY p.id ORDER BY p.created_at DESC LIMIT 500`
-  : `SELECT * FROM ${STREAMS[name][0]} WHERE astronaut_id=$1 AND (${since} IS NULL OR ${STREAMS[name][1]}>${since}) ORDER BY ${STREAMS[name][1]} DESC LIMIT 5000`;
-
-async function readTable(c, table, id, since) {
-  if (!STREAMS[table]) throw new HttpError(404, 'No such astronaut data collection.');
-  const result = await c.query(streamSql(table, '$2::timestamptz'), [id, sinceParam(since)]);
-  return { items: result.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k,v]) => [k, iso(v)]))) };
-}
-
-/** All ten streams in ONE query (the record page polls every 2 s; ten requests at once used up the connection pool).
- *  Each stream takes its own cursor: ?vitals=<time>&plan=<time>... */
-async function readRecord(c, id, params) {
-  const args = [id];
-  const cols = Object.keys(STREAMS).map((name) => {
-    args.push(sinceParam(params.get(name)));
-    return `COALESCE((SELECT jsonb_agg(x ORDER BY x.${STREAMS[name][1]} DESC) FROM (${streamSql(name, `$${args.length}::timestamptz`)}) x),'[]'::jsonb) AS ${name}`;
-  });
-  return (await c.query(`SELECT ${cols.join(',\n')}`, args)).rows[0];
-}
-
 async function route(req, res, url) {
   const method = req.method || 'GET'; let pathName;
   try { pathName = decodeURIComponent(url.pathname.replace(/^\/backend\/?/, '/')); } catch { throw new HttpError(400, 'Malformed URL.'); }
   const body = ['POST','PUT','PATCH'].includes(method) ? await parseBody(req) : {};
+  const recordId=pathName.match(/^\/(?:decisions|events|condition-events|alerts|reports|jobs)\/([^/]+)/);
+  if(recordId && pathName!=='/decisions/pending') uuid(recordId[1]);
   if (method === 'GET' && pathName === '/health') {
-    try { const q = await pool.query('SELECT 1'); return { ok: q.rowCount === 1, service: 'javascript-backend', agent: process.env.GEMINI_API_KEY ? 'configured' : 'uses-python-worker' }; }
+    try { const q = await pool.query('SELECT max(version)::int AS version FROM schema_migrations'); return { ok: q.rows[0].version>=3, service: 'javascript-backend', schemaVersion:q.rows[0].version, ...buildInfo, agent: process.env.GEMINI_API_KEY ? 'configured' : 'uses-python-worker' }; }
     catch { throw new HttpError(503, 'Database is unavailable.'); }
   }
-  if (method === 'POST' && pathName === '/auth/login') return login(body, res);
+  if (method === 'POST' && pathName === '/auth/login') {loginLimits.check(req.socket.remoteAddress||'local');return login(body, res);}
 
   const token = getCookie(req);
   if (method === 'POST' && pathName === '/auth/logout') {
@@ -188,8 +165,24 @@ async function route(req, res, url) {
     cookie(res, '', 0); return { ok: true };
   }
   if (!token) throw new HttpError(401, 'Sign in to continue.');
+  if(method==='POST' && pathName==='/jobs') {
+    const job=await submitAgent(token,body.command,body.input,body.requestId);
+    res.statusCode=202;return job;
+  }
+  const jobMatch=pathName.match(/^\/jobs\/([^/]+)$/);
+  if(method==='GET' && jobMatch)return appTransaction(token,c=>jobs.get(c,jobMatch[1]),true);
   // the AI commands manage their own short transactions, so none stays open while Gemini answers
-  if (method === 'POST' && ['/checkin','/chat','/assess','/weekly','/emergency'].includes(pathName)) return runAgent(token, pathName.slice(1), body);
+  if (method === 'POST' && ['/checkin','/chat','/assess','/weekly','/emergency'].includes(pathName)) {
+    let job=await submitAgent(token,pathName.slice(1),body,req.headers['idempotency-key']||randomUUID());
+    const deadline=Date.now()+110000;
+    while(!['succeeded','failed'].includes(job.status)){
+      if(Date.now()>deadline)throw new HttpError(504,'The request is still processing. Refresh the record before retrying.');
+      await new Promise(resolve=>setTimeout(resolve,2000));
+      job=await appTransaction(token,c=>jobs.get(c,job.id),true);
+    }
+    if(job.status==='failed')throw new HttpError(502,job.error);
+    return job.result;
+  }
 
   return appTransaction(token, async (c) => {
     const a = c.astronaut;
@@ -197,10 +190,13 @@ async function route(req, res, url) {
       const { leader: leaderId, decider: deciderId } = (await c.query('SELECT acting_leader($1) AS leader, decider_for($2) AS decider', [a.mission_id, a.id])).rows[0];
       return { astronaut: { id:a.id, name:a.display_name, callsign:a.callsign, role:a.role, rank:a.command_rank, fitForCommand:a.fit_for_command }, actingLeaderId:leaderId, isActingLeader:leaderId===a.id, deciderId, mission:{ id:a.mission_id, name:a.mission_name, destination:a.destination, earthLinkAvailable:a.earth_link_available, earthRoundTripSeconds:a.earth_round_trip_seconds, earthReviewSeconds:a.earth_review_seconds } };
     }
+    if(method==='GET' && pathName==='/dashboard') return dashboard(c,a);
+    const relatedMatch=pathName.match(/^\/astronauts\/([^/]+)\/related$/);
+    if(method==='GET' && relatedMatch) {const id=await resolveAstronaut(c,relatedMatch[1]);await assertVisible(c,id);return related(c,a,id,url.searchParams.get('chat')==='true');}
     const recordMatch = pathName.match(/^\/astronauts\/([^/]+)\/record$/);
     if (method === 'GET' && recordMatch) { const id=await resolveAstronaut(c,recordMatch[1]); await assertVisible(c,id); return readRecord(c,id,url.searchParams); }
     const dataMatch = pathName.match(/^\/astronauts\/([^/]+)\/(vitals|sleep|mental|checkins|assessment|plan|medications|labs|events|decisions)$/);
-    if (method === 'GET' && dataMatch) { const [, key, table] = dataMatch; const id=await resolveAstronaut(c,key); await assertVisible(c,id); return readTable(c,table,id,url.searchParams.get('since')); }
+    if (method === 'GET' && dataMatch) { const [, key, table] = dataMatch; const id=await resolveAstronaut(c,key); await assertVisible(c,id); return readTable(c,table,id,url.searchParams.get('since'),url.searchParams); }
     if (method === 'GET' && pathName === '/crew/overview') {
       // One query, one round trip: the leader check and each member's latest reading, check-in and open events.
       // (It was 13 queries, which is over four seconds against a remote database, on a page that polls.)
@@ -224,6 +220,7 @@ async function route(req, res, url) {
     if (method === 'POST' && decisionMatch) {
       if (!['approve','reject'].includes(body.action)) throw new HttpError(400,'Action must be approve or reject.');
       const pending=await c.query("SELECT id,decision_type FROM decisions WHERE id=$1 AND outcome='proposed'",[decisionMatch[1]]);
+      if(pending.rows[0]?.decision_type==='plan_approval') return (await c.query('SELECT * FROM resolve_plan_decision($1,$2)',[decisionMatch[1],body.action])).rows[0];
       if(body.action==='approve' && pending.rows[0]?.decision_type==='tier2_dose') {
         const dose=await c.query(`SELECT me.id FROM medication_events me JOIN medications m ON m.id=me.medication_id
           WHERE me.decision_id=$1 AND me.quantity IS NOT NULL AND me.quantity_unit=m.stock_unit
@@ -245,17 +242,14 @@ async function route(req, res, url) {
           WHERE decision_id=$1 AND status='awaiting_confirmation' RETURNING id`,[decision.id,body.action==='approve'?'confirmed':'declined',a.id]);
         if(!dose.rowCount) throw new HttpError(409,'The dose is no longer waiting for a decision.');
       }
-      if(decision.decision_type==='plan_approval') {
-        const evidence=decision.evidence||{}; const newStatus=body.action==='approve'?'planned':'skipped';
-        if(evidence.treatmentPlanItemId) await c.query('UPDATE treatment_plan_items SET status=$2 WHERE id=$1',[evidence.treatmentPlanItemId,newStatus]);
-        if(evidence.treatmentPlanId) {
-          // once nothing is pending, the plan is approved if any of its items was, whatever the last click was
-          const p=(await c.query(`SELECT bool_or(outcome='proposed') AS pending, bool_or(outcome='accepted') AS accepted
-            FROM decisions WHERE decision_type='plan_approval' AND evidence->>'treatmentPlanId'=$1`,[evidence.treatmentPlanId])).rows[0];
-          if(!p.pending) await c.query('UPDATE treatment_plans SET status=$2,approved_by_astronaut_id=$3,approved_at=now() WHERE id=$1',[evidence.treatmentPlanId,p.accepted?'approved':'rejected',a.id]);
-        }
-      }
       return decision;
+    }
+    const resolveEvent=pathName.match(/^\/condition-events\/([^/]+)\/resolve$/);
+    if(method==='POST' && resolveEvent) {
+      if(body.confirmed!==true) throw new HttpError(400,'Confirm that this event has been reviewed.');
+      const q=await c.query('SELECT close_condition_event($1,$2) AS ok',[resolveEvent[1],'Closed after explicit crew review.']);
+      if(!q.rows[0].ok) throw new HttpError(409,'This event is already closed or unavailable.');
+      return {ok:true};
     }
     const eventMatch = pathName.match(/^\/events\/([^/]+)\/(cancel|confirm|given)$/);
     if (method === 'POST' && eventMatch) {
@@ -407,20 +401,19 @@ const vitalSummary=async(c,id,bucket,from,to)=>(await c.query(`SELECT date_trunc
     count(*) FILTER (WHERE sensor_status<>'ok')::int AS sensor_problems
   FROM vital_samples WHERE astronaut_id=$1 AND observed_at>=$3::timestamptz AND observed_at<$4::timestamptz GROUP BY 1 ORDER BY 1`,[id,bucket,from,to])).rows;
 
-const isDate = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d));
 
 // Agent commands run in three steps so no database connection or transaction is held while the Python worker
 // and Gemini answer (20 s to a minute): read in one short transaction, ask, then write in a second one.
 async function runAgent(token, command, body) {
   if(command==='weekly') {
-    const start=body.periodStart || new Date(Date.now()-7*864e5).toISOString().slice(0,10); const end=body.periodEnd || new Date().toISOString().slice(0,10);
+    const start=body.periodStart || new Date(Date.now()-6*864e5).toISOString().slice(0,10); const end=body.periodEnd || new Date().toISOString().slice(0,10);
     if(![start,end].every(isDate)||start>end) throw new HttpError(400,'periodStart and periodEnd must be dates (YYYY-MM-DD), start first.');
     const astronauts=await appTransaction(token, async (c) => {
       await requireLeader(c);
       // The whole crew's week in ONE round trip (it was 1 + 7 per astronaut, about 10 s against the remote database).
       const rows=t=>`COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM (${t}) x),'[]'::jsonb)`;
       return (await c.query(`SELECT m.id,
-          ${rows('SELECT * FROM check_ins WHERE astronaut_id=m.id AND check_in_date BETWEEN $2 AND $3')} AS "checkIns",
+          ${rows('SELECT id,check_in_date,status,mental_health_score,reported_symptoms,agent_summary FROM check_ins WHERE astronaut_id=m.id AND check_in_date BETWEEN $2 AND $3')} AS "checkIns",
           ${rows(`SELECT date_trunc('day',observed_at) AS period,count(*)::int AS samples,
               round(avg(heart_rate_bpm)::numeric,1) AS hr_avg,min(heart_rate_bpm) AS hr_min,max(heart_rate_bpm) AS hr_max,
               round(avg(systolic_mmhg)::numeric) AS sys_avg,min(systolic_mmhg) AS sys_min,max(systolic_mmhg) AS sys_max,round(avg(diastolic_mmhg)::numeric) AS dia_avg,
@@ -429,7 +422,7 @@ async function runAgent(token, command, body) {
             FROM vital_samples WHERE astronaut_id=m.id AND observed_at>=$2::date AND observed_at<($3::date + 1) GROUP BY 1 ORDER BY 1`)} AS vitals,
           ${rows('SELECT * FROM sleep_sessions WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS sleep,
           ${rows('SELECT * FROM condition_events WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS events,
-          ${rows('SELECT * FROM decisions WHERE astronaut_id=m.id AND decided_at >= $2::date AND decided_at < ($3::date + 1)')} AS decisions,
+          ${rows('SELECT id,decided_at,decision_type,rationale,proposed_action,outcome FROM decisions WHERE astronaut_id=m.id AND decided_at >= $2::date AND decided_at < ($3::date + 1)')} AS decisions,
           ${rows('SELECT * FROM medication_events WHERE astronaut_id=m.id AND proposed_at >= $2::date AND proposed_at < ($3::date + 1)')} AS medications,
           ${rows(`SELECT p.*,COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.position) FILTER(WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
             FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
@@ -477,9 +470,14 @@ async function runAgent(token, command, body) {
       const mental=(await c.query('SELECT mental_health_score FROM check_ins WHERE astronaut_id=$1 AND mental_health_score IS NOT NULL ORDER BY check_in_date DESC LIMIT 1',[astr])).rows[0]||null;
       return {astr,mental,input:{...body,context:{vitals24h:vitals,mental}}};
     }
+    if(command==='checkin') {
+      const completed=(await c.query("SELECT id,agent_summary,mental_health_score FROM check_ins WHERE astronaut_id=$1 AND check_in_date=$2 AND status='completed'",[astr,date])).rows[0];
+      if(completed)return {astr,completed};
+    }
     return {astr,input:command==='checkin'?{...body,date,astronautId:astr}:body};
   }, true);
   const {astr}=read;
+  if(read.completed)return {checkInId:read.completed.id,completed:true,alreadyCompleted:true,message:{from:'agent',text:read.completed.agent_summary||'This check-in is complete.',at:Date.now()},mental:{score:read.completed.mental_health_score}};
   // 2. ask, with no connection held
   const data=await runPython(['-m','overview',command],read.input);
   // 3. store the answer
@@ -498,25 +496,7 @@ async function runAgent(token, command, body) {
       }
       return { ...data, assessmentId:assessment.id, planId:plan.id };
     }
-    if(command==='checkin') {
-      const messages=Array.isArray(body.messages)?body.messages:[];
-      const transcript=[...messages,{from:'agent',text:data.message?.text||'',at:data.message?.at||Date.now()}];
-      // sleep is stored once, by the message that completes the check-in, not again for every later message
-      const wasCompleted=(await c.query('SELECT status FROM check_ins WHERE astronaut_id=$1 AND check_in_date=$2',[astr,date])).rows[0]?.status==='completed';
-      const q=await c.query(`INSERT INTO check_ins(astronaut_id,check_in_date,started_at,completed_at,status,mood_score,mental_health_score,reported_symptoms,agent_summary,transcript)
-        VALUES($1,$2,now(),CASE WHEN $3 THEN now() ELSE NULL END,CASE WHEN $3 THEN 'completed' ELSE 'in_progress' END,$4,$5,$6,$7,$8::jsonb)
-        ON CONFLICT(astronaut_id,check_in_date) DO UPDATE SET completed_at=EXCLUDED.completed_at,status=EXCLUDED.status,mood_score=EXCLUDED.mood_score,
-          mental_health_score=COALESCE(EXCLUDED.mental_health_score,check_ins.mental_health_score),reported_symptoms=COALESCE(EXCLUDED.reported_symptoms,check_ins.reported_symptoms),agent_summary=EXCLUDED.agent_summary,transcript=EXCLUDED.transcript RETURNING id`,
-          [astr,date,data.completed,data.mental?.score??null,data.mental?.score??null,data.answers?.symptoms??null,data.message?.text??null,JSON.stringify(transcript)]);
-      const checkId=q.rows[0].id;
-      const answers={...(data.answers||{}),...(data.mental?{mentalAnswers:data.mental.answers}:{})};
-      // lists (the five mental-health answers) are kept as JSON text; neither value column could hold them before
-      for(const [key,value] of Object.entries(answers)) if(value!==undefined&&value!==null) await c.query(`INSERT INTO check_in_answers(check_in_id,question_key,answer_text,answer_number) VALUES($1,$2,$3,$4)
-        ON CONFLICT(check_in_id,question_key) DO UPDATE SET answer_text=EXCLUDED.answer_text,answer_number=EXCLUDED.answer_number,answered_at=now()`,[checkId,key,typeof value==='string'?value:typeof value==='object'?JSON.stringify(value):null,typeof value==='number'?value:null]);
-      if(data.completed&&!wasCompleted&&Number.isFinite(data.answers?.sleepHours)) await c.query(`INSERT INTO sleep_sessions(astronaut_id,started_at,ended_at,source,reported_hours,quality_score,notes)
-        VALUES($1,now()-interval '1 day',now()-interval '1 day'+($2*interval '1 hour'),'check_in',$2,$3,$4)`,[astr,data.answers.sleepHours,data.answers.sleepRating?data.answers.sleepRating*20:null,data.answers.symptoms]);
-      return { ...data, checkInId:checkId };
-    }
+    if(command==='checkin') return saveCheckin(c,astr,date,data,Array.isArray(body.messages)?body.messages:[]);
     if(command==='chat') {
       const score=read.mental?.mental_health_score;
       const safeSummary=score==null?'Private manager-agent chat closed.':`Private manager-agent chat closed; latest mental-health score is ${score}/100.`;
@@ -542,6 +522,23 @@ async function inject(c, astronautId, condition) {
   const subject=await resolveAstronaut(c,astronautId);
   const q=await c.query('SELECT simulate_condition($1,$2) AS event_id',[subject,String(condition).toLowerCase().replace(/-/g,'_')]);
   return {eventId:q.rows[0].event_id};
+}
+
+const jobs=new AgentJobs(watchTransaction,runAgent);
+const jobsEnabled=!(process.env.NODE_ENV==='test' && process.env.AGENT_JOBS_DISABLED==='true');
+async function submitAgent(token,command,input,requestId) {
+  if(!['assess','weekly','checkin','chat','emergency'].includes(command))throw new HttpError(400,'Unknown agent command.');
+  agentInput(command,input);uuid(requestId);
+  const job=await appTransaction(token,async c=>{
+    if(command==='weekly')await requireLeader(c);
+    else {
+      if(!input.astronautId)throw new HttpError(400,'astronautId is required.');
+      const subject=await resolveAstronaut(c,input.astronautId);await assertVisible(c,subject);
+      if(command!=='assess' && subject!==c.astronaut.id)throw new HttpError(403,'This action is only available for your own account.');
+    }
+    return jobs.enqueue(c,c.astronaut.id,sha256(token),command,input,requestId);
+  });
+  if(jobsEnabled)jobs.wake();return job;
 }
 
 const BASELINES = {
@@ -674,18 +671,21 @@ async function deadlineTick() {
 
 const server = http.createServer(async (req,res) => {
   try {
+    if(/\bgzip\b/.test(req.headers['accept-encoding']||''))res.setHeader('x-use-gzip','1');
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const result = await route(req,res,url);
-    if (!res.headersSent) json(res,200,result);
+    if (!res.headersSent) json(res,res.statusCode||200,result);
   } catch(e) {
     if(res.headersSent) { res.destroy(); return; }
-    const status=e instanceof HttpError?e.status:500;
+    const dbStatus={'42501':403,'P0002':409,'22P02':400,'22008':400,'22007':400,'22023':400,'23505':409,'23514':409};
+    const status=e instanceof HttpError?e.status:dbStatus[e.code]||500;
     if(status===500) console.error(e);
-    json(res,status,{error:status===500?'Internal server error.':e.message});
+    if(status===429)res.setHeader('retry-after','60');
+    json(res,status,{error:status===500?'Internal server error.':e instanceof HttpError||['42501','P0002','22023'].includes(e.code)?e.message:status===400?'Invalid input. Check the date and record ID.':'This record changed. Refresh and try again.'});
   }
 });
 
-server.listen(PORT, () => console.log(`JavaScript backend listening on http://localhost:${PORT}/backend`));
+server.listen(PORT, () => {console.log(`JavaScript backend listening on http://localhost:${PORT}/backend ${JSON.stringify(buildInfo)}`);if(jobsEnabled)jobs.start();});
 if(process.env.WATCH_ENABLED!=='false') {
   setInterval(backgroundTick, Math.max(5000,Number(process.env.WATCH_TICK_MS||60_000)));
   // every 5 s: one pass is about nine remote round trips (~3 s), and the 15 s cancel window and the 60 s and
@@ -694,4 +694,4 @@ if(process.env.WATCH_ENABLED!=='false') {
   void deadlineTick();
   void backgroundTick();
 }
-process.on('SIGTERM', async () => { server.close(); await Promise.all([pool.end(),watchPool.end(),lockClient?.end().catch(() => {})]); process.exit(0); });
+process.on('SIGTERM', async () => { jobs.stop();server.close(); await Promise.all([pool.end(),watchPool.end(),lockClient?.end().catch(() => {})]); process.exit(0); });

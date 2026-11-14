@@ -1,14 +1,30 @@
 // One watch reading for one astronaut, written in the caller's transaction (role watch_service): the vitals row,
 // and one condition event per episode, with its decision, dose, crew alerts and emergency report.
 // Its own module so backend/smoke.test.js can drive it with a fixed result, no Python or Gemini needed.
+import { readFileSync } from 'node:fs';
+const rules=JSON.parse(readFileSync(new URL('../watch/rules.json',import.meta.url),'utf8'));
 export async function saveWatchResult(c, member, reading, result) {
+  await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,31))",[member.id]);
+  // Repair linked actions left open by older releases, without changing administered medication history.
+  await c.query(`WITH closed AS (SELECT id FROM condition_events WHERE astronaut_id=$1 AND status IN ('resolved','false_alarm')),
+    alerts AS (UPDATE crew_alerts SET status='resolved' WHERE condition_event_id IN (SELECT id FROM closed) AND status IN ('pending','acknowledged')),
+    doses AS (UPDATE medication_events SET status='cancelled',cancelled_at=now(),notes=concat_ws(' ',notes,'Closed event; pending action reconciled.')
+      WHERE condition_event_id IN (SELECT id FROM closed) AND status IN ('proposed','awaiting_confirmation','confirmed','crew_action_required'))
+    UPDATE decisions SET outcome='cancelled',decided_at=now(),rationale=concat_ws(' ',rationale,'Closed event; pending action reconciled.')
+      WHERE condition_event_id IN (SELECT id FROM closed) AND outcome='proposed'`,[member.id]);
   const decision=result.decision; const metric={hr:reading.hr_mean,sys:reading.bp_sys,dia:reading.bp_dia,spo2:reading.spo2,temp:reading.temp,radiation:reading.radiation};
   await c.query(`INSERT INTO vital_samples(astronaut_id,observed_at,source,activity,heart_rate_bpm,systolic_mmhg,diastolic_mmhg,spo2_percent,temperature_c,radiation_rate,radiation_rate_unit,sensor_status,payload)
     VALUES($1,now(),'watch',$2,$3,$4,$5,$6,$7,$8,'µSv/h',$9,$10::jsonb)`,[member.id,result.state,metric.hr,metric.sys,metric.dia,metric.spo2,metric.temp,metric.radiation,result.flags.includes('sensor_fault')?'fault':'ok',JSON.stringify({reading,flags:result.flags})]);
   const current=!result.flags.length || decision.condition==='none' ? '' : decision.condition;
-  // one event per episode: close watch events whose condition has cleared, and do not repeat one still open
-  await c.query(`UPDATE condition_events SET status='resolved',ended_at=now() WHERE astronaut_id=$1 AND reported_by='watch'
-    AND status IN ('open','monitoring') AND condition_key<>$2`,[member.id,current]);
+  // A different winning condition is not proof that an earlier condition cleared. A faulty sensor is
+  // not proof of physiological recovery either. Close an episode only after its own flag clears.
+  const episodes=(await c.query(`SELECT id,condition_key FROM condition_events WHERE astronaut_id=$1
+    AND reported_by='watch' AND status IN ('open','monitoring')`,[member.id])).rows;
+  for(const episode of episodes) {
+    const rule=rules.conditions.find(r=>r.name===episode.condition_key);
+    if(rule && !result.flags.includes(rule.flag) && (episode.condition_key==='sensor_fault' || !result.flags.includes('sensor_fault')))
+      await c.query('SELECT close_condition_event($1,$2)',[episode.id,'Resolved after a valid watch reading cleared the flag.']);
+  }
   if(!current) return;
   if((await c.query(`SELECT 1 FROM condition_events WHERE astronaut_id=$1 AND reported_by='watch' AND condition_key=$2
     AND status IN ('open','monitoring')`,[member.id,current])).rowCount) return;

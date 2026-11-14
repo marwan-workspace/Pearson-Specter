@@ -21,8 +21,8 @@ type AgentReply = { message: { text: string; at?: number }; completed?: boolean;
 export function RecordPage({ astronautKey }: { astronautKey: string }) {
   const { me } = useSession();
   const isSelf = me?.astronaut.callsign.toLowerCase() === astronautKey.toLowerCase();
-  const { records, related, error, reload, resolveDecision } = useRecord(astronautKey, isSelf);
   const [tab, setTab] = useState<TabId>('vitals');
+  const { records, related, activeEvents, profileReady, error, reload, resolveDecision, loadMore, hasMore, loadingHistory } = useRecord(astronautKey, isSelf, tab);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [checkin, setCheckin] = useState<ChatMessage[]>([]);
@@ -102,7 +102,7 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
   const name = person?.display_name ?? words(astronautKey.toLowerCase());
   const actions: Actions = { busy, act };
   const latest = records?.vitals[0];
-  const openEvents = records?.events.filter((e) => e.status === 'open' || e.status === 'monitoring') ?? [];
+  const openEvents = activeEvents;
   const myAlerts = related?.alerts.filter((a) => a.recipient_id === me.astronaut.id && (a.status === 'pending' || a.status === 'acknowledged')) ?? [];
   const pending = related?.pending ?? [];
   const careBadge = records?.medications.filter((m) => m.status === 'proposed' || m.status === 'awaiting_confirmation').length ?? 0;
@@ -128,7 +128,7 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {!records ? <Skeleton className="h-6 w-40" /> : (
               <>
-                {openEvents.length ? <Pill tone="critical">{openEvents.length} open {openEvents.length === 1 ? 'event' : 'events'}</Pill> : <Pill tone="nominal">No open events</Pill>}
+                {openEvents.length ? <Pill tone={openEvents.some(e => e.reported_by === 'watch' && e.severity === 'critical') ? 'critical' : 'warning'}>{openEvents.length} unresolved {openEvents.length === 1 ? 'event' : 'events'}</Pill> : <Pill tone="nominal">No open events</Pill>}
                 {person && !person.fit_for_command && <Pill tone="warning">Unfit for command</Pill>}
                 {latest && latest.sensor_status !== 'ok' && <Pill tone="fault">Sensor {latest.sensor_status}</Pill>}
                 <span className="label flex items-center gap-1.5">
@@ -157,6 +157,11 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
       </div>
 
       {error && <ErrorBanner message={error} onRetry={() => void reload()} />}
+      {!!openEvents.length && <div className="well p-3 text-sm text-secondary">
+        {latest?.sensor_status === 'ok' && latest.flags?.length === 0 ? 'The latest stored watch reading is within limits. ' : ''}
+        {openEvents.some(e => e.reported_by === 'simulator') ? 'A stored simulator scenario is still open; end it in Events after review. ' : ''}
+        Stored events remain separate from the browser simulation below. Watch events close on a valid recovered reading; other events require review.
+      </div>}
 
       {myAlerts.length > 0 && (
         <section aria-label="Alerts for you" className="grid gap-3">
@@ -202,7 +207,7 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
       <Tabs tabs={tabs} value={current} onChange={chooseTab} label={`${name}'s record`} />
 
       <div role="tabpanel" id={`panel-${current}`} aria-labelledby={`tab-${current}`} tabIndex={-1} key={current} className="fade-in">
-        {!records ? (
+        {!records || !profileReady ? (
           error ? null : (
             <div className="grid gap-4" role="status" aria-label="Loading record">
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-36 w-full" />)}</div>
@@ -230,6 +235,7 @@ export function RecordPage({ astronautKey }: { astronautKey: string }) {
           )}
       </div>
       <Toast notice={notice} onClose={() => setNotice(null)} />
+      {hasMore && <button className="btn btn-ghost justify-self-start" disabled={loadingHistory} onClick={() => void loadMore()}>{loadingHistory ? <Spinner /> : null}Load earlier records</button>}
     </div>
   );
 }

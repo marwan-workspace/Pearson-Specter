@@ -7,6 +7,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
+  env: { NEXT_PUBLIC_APP_BUILD_ID: process.env.APP_BUILD_ID || 'local' },
   // the telemetry engine imports ../watch/rules.json and baselines.json, the same files the Python watch reads
   // The report worker can run for 65 seconds, plus remote database reads and writes.
   experimental: { externalDir: true, proxyTimeout: 120_000 },
