@@ -22,6 +22,7 @@ On Windows, if `.venv` was created under Linux/WSL, create a separate environmen
 
 - `POST /backend/auth/login`, `POST /backend/auth/logout`, `GET /backend/me`
 - `GET /backend/astronauts/:id/{vitals,sleep,mental,checkins,assessment,plan,medications,labs,events,decisions}`
+- `GET /backend/astronauts/:id/record?<stream>=<time>` returns all ten streams above in one query, each newer than its own optional cursor (for example `?vitals=2026-11-14T09:00:00Z`); the dashboard's record page polls this instead of the ten routes
 - `GET /backend/crew/overview`, `GET /backend/decisions/pending`, `POST /backend/decisions/:id`
 - `POST /backend/events/:id/{cancel,confirm,given}`, `GET /backend/alerts`, `POST /backend/alerts/:id/ack`
 - `GET /backend/command`, `POST /backend/command/{handover,restore,earth-link,location}`, `POST /backend/accounts/:id/unlock`

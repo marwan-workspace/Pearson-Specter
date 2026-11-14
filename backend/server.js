@@ -144,8 +144,9 @@ const STREAMS = {
   checkins: ['check_ins', 'started_at'], assessment: ['health_assessments', 'assessed_at'], plan: ['treatment_plans', 'created_at'],
   medications: ['medication_events', 'proposed_at'], labs: ['lab_results', 'collected_at'], events: ['condition_events', 'started_at'], decisions: ['decisions', 'decided_at'],
 };
-// passed through as given: Postgres keeps microseconds, and cutting the cursor to milliseconds re-sent the newest row every poll
-const sinceParam = (v) => v && Number.isFinite(Date.parse(v)) ? v : null;
+// ISO times pass through as given (Postgres keeps microseconds; cutting the cursor to milliseconds re-sent the newest
+// row every poll); any other date Date.parse accepts is normalised, so Postgres never sees a format it rejects
+const sinceParam = (v) => !v || !Number.isFinite(Date.parse(v)) ? null : /^\d{4}-\d{2}-\d{2}T/.test(v) ? v : new Date(v).toISOString();
 /** One stream's rows for astronaut $1, newer than `since` (an SQL placeholder holding a timestamp or NULL). */
 const streamSql = (name, since) => name === 'plan'
   ? `SELECT p.*,COALESCE(jsonb_agg(jsonb_build_object('id',i.id,'position',i.position,'action_type',i.action_type,
@@ -640,10 +641,11 @@ async function processDeadlines() {
 const JOBS_LOCK = 724810001;
 let lockClient = null, jobRunner = false;
 async function holdJobsLock() {
-  if (jobRunner) return true;
   try {
+    // a laptop that slept may hold a dead connection whose lock Postgres already released: prove it is alive
+    if (jobRunner) { await lockClient.query('SELECT 1'); return true; }
     if (!lockClient) {
-      const c = new pg.Client({ connectionString: process.env.DATABASE_URL, application_name: 'crew-jobs-lock' });
+      const c = new pg.Client({ connectionString: process.env.DATABASE_URL, application_name: 'crew-jobs-lock', keepAlive: true });
       const lost = () => { if (lockClient === c) { lockClient = null; jobRunner = false; } };
       c.on('error', lost); c.on('end', lost);
       lockClient = c;

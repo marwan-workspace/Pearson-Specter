@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { backendRequest } from './session';
 import { usePoll } from './hooks';
 import type { ChainMember, ChatMessage, CheckIn, CrewAlert, Decision, RecordStreams, StockItem } from './types';
@@ -29,7 +29,7 @@ export interface Related {
  */
 export function useRecord(astronautKey: string, isSelf: boolean) {
   const [records, setRecords] = useState<RecordStreams | null>(null);
-  const [related, setRelated] = useState<Related | null>(null);
+  const [related, setRelated] = useState<Omit<Related, 'checkin'> | null>(null);
   const [error, setError] = useState('');
   const cursor = useRef<Partial<Record<StreamName, string>>>({});
   const polling = useRef(false);
@@ -90,19 +90,16 @@ export function useRecord(astronautKey: string, isSelf: boolean) {
 
   const loadRelated = useCallback(async () => {
     try {
-      const [a, s, d, ch, ci, cmd] = await Promise.all([
+      const [a, s, d, ch, cmd] = await Promise.all([
         backendRequest<{ items: CrewAlert[] }>('/alerts'),
         backendRequest<{ items: StockItem[] }>('/medications'),
         backendRequest<{ items: Decision[] }>('/decisions/pending'),
         isSelf ? backendRequest<{ items: { id: string; messages: { speaker: string; text: string; sentAt: string }[] }[] }>(`/astronauts/${key}/chat`) : Promise.resolve({ items: [] }),
-        backendRequest<{ items: CheckIn[] }>(`/astronauts/${key}/checkins`),
         backendRequest<{ crew: ChainMember[] }>('/command'),
       ]);
-      const latestCheckin = ci.items.find((x) => Array.isArray(x.transcript) && x.transcript.length);
       const chat = ch.items[0];
       setRelated({
         alerts: a.items, stock: s.items, pending: d.items, chain: cmd.crew,
-        checkin: (latestCheckin?.transcript || []).map((m) => ({ from: m.from === 'agent' ? 'agent' : 'astronaut', text: String(m.text || ''), at: Number(m.at) || Date.now() })),
         chat: chat ? { id: String(chat.id), messages: (chat.messages || []).map((m) => ({ from: m.speaker === 'astronaut' ? 'astronaut' : 'agent', text: String(m.text || ''), at: Date.parse(m.sentAt) || Date.now() })) } : null,
       });
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not load alerts and decisions.'); }
@@ -119,5 +116,11 @@ export function useRecord(astronautKey: string, isSelf: boolean) {
     setRelated((prev) => prev ? { ...prev, pending: prev.pending.filter((d) => d.id !== decision.id) } : prev);
     setRecords((prev) => prev ? { ...prev, decisions: prev.decisions.map((d) => d.id === decision.id ? decision : d) } : prev);
   }, []);
-  return { records, related, error, reload, resolveDecision };
+  // today's saved check-in conversation comes from the record's own checkins stream, not a second request
+  const checkin = useMemo<ChatMessage[]>(() => {
+    const latest = (records?.checkins as CheckIn[] | undefined)?.find((x) => Array.isArray(x.transcript) && x.transcript.length);
+    return (latest?.transcript || []).map((m) => ({ from: m.from === 'agent' ? 'agent' : 'astronaut', text: String(m.text || ''), at: Number(m.at) || Date.now() }));
+  }, [records?.checkins]);
+  const withCheckin = useMemo<Related | null>(() => related && { ...related, checkin }, [related, checkin]);
+  return { records, related: withCheckin, error, reload, resolveDecision };
 }
