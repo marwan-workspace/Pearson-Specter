@@ -4,7 +4,7 @@ import { useState, type CSSProperties, type FormEvent, type ReactNode } from 're
 import { Activity, BedDouble, Bell, Brain, ClipboardList, Droplets, FlaskConical, HeartPulse, Inbox, Pill as PillIcon, Radiation, Stethoscope, Syringe, Thermometer, Users, Gauge, type LucideIcon } from 'lucide-react';
 import { clock, dateTime, num, timeAgo, words } from '@/lib/format';
 import type { ChainMember, CrewAlert, RecordStreams, StockItem, Vital } from '@/lib/types';
-import { AnimatedCheck, EmptyState, Panel, Pill, Sparkline, Spinner, StatusPill } from './ui';
+import { AnimatedCheck, ConfirmButton, EmptyState, Panel, Pill, Sparkline, Spinner, StatusPill } from './ui';
 
 /** What every tab needs to run an action: POST to the backend, with one busy key at a time. */
 export interface Actions {
@@ -83,6 +83,11 @@ export function EventsTab({ records, alerts, chain, myId, actions }: { records: 
                 <span className="label ml-auto">{dateTime(e.started_at)} · by {words(e.reported_by).toLowerCase()}</span>
               </div>
               {e.summary && <p className="mt-1 text-sm text-secondary">{e.summary}</p>}
+              {e.ended_at && <p className="label mt-1">Closed {dateTime(e.ended_at)}</p>}
+              {e.reported_by !== 'watch' && ['open','monitoring'].includes(e.status) && <ConfirmButton className="btn btn-sm btn-ghost mt-2" confirmLabel={e.reported_by === 'simulator' ? 'Confirm: end this scenario' : 'Confirm: reviewed and resolved'} disabled={!!actions.busy}
+                onConfirm={() => void actions.act(e.id, 'Event resolved. Pending actions cancelled.', `/condition-events/${e.id}/resolve`, {confirmed:true})}>
+                {e.reported_by === 'simulator' ? 'End simulator scenario' : 'Mark reviewed and resolved'}
+              </ConfirmButton>}
             </>
           )}
         </Rows>

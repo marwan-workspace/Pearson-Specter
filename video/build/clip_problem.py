@@ -39,7 +39,7 @@ filters = ["scale=w='2112*(1+0.00012*n)':h=-2:eval=frame", "crop=1920:1080", "eq
 for i, (text, word) in enumerate(LINES):
     times, _ = vid.type_times(text, at(word) - 0.05, rng, lo=0.055, hi=0.08, stop_pause=0)
     filters += vid.typed_text(text, times, x, y0 + i * LH, SIZE, fade_at=FADE_AT, fade_len=0.7)
-    vid.typewriter_sound(sfx, times, text, gain=0.75, seed=30 + i)
+    vid.typewriter_sound(sfx, times, text, gain=0.05, seed=30 + i)  # barely there: the voice carries this part
 
 # team title on a low boom when the voice says the name
 T_AT = at("Pearson-Specter") - 0.1
@@ -48,7 +48,7 @@ title_alpha = f"min(1,(t-{T_AT})/0.5)"
 filters.append(f"drawtext=fontfile='{vid.TITLE}':text='PEARSON-SPECTER':fontsize=120:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2-50:alpha='{title_alpha}':enable='gte(t,{T_AT})'")
 filters.append(f"drawtext=fontfile='{vid.LIGHT}':text='Crew health system':fontsize=52:fontcolor=0xBFC7D5:x=(w-text_w)/2:y=(h)/2+60:alpha='min(1,(t-{SUB_AT})/0.6)':enable='gte(t,{SUB_AT})'")
 filters.append(f"fade=t=in:st=0:d=0.6")
-vid.boom(sfx, T_AT, gain=0.75)
+vid.boom(sfx, T_AT, gain=0.32, noise=False)  # under the spoken name: weight, no crack
 wav = os.path.join(vid.SCRATCH, "problem_sfx.wav"); sfx.save(wav)
 
 bg = ["-loop", "1", "-framerate", "30", "-t", str(DUR), "-i", stars]

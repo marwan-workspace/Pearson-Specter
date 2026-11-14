@@ -52,6 +52,11 @@ class OverviewTest(unittest.TestCase):
         row = {"condition_key": "shock", "severity": "critical", "status": "open", "reported_by": "watch"}
         self.assertEqual(agent.assess({**DAY, "watchEvents": [row]}, says(ASSESSMENT))["urgency"], "urgent")
 
+    def test_resolved_and_simulator_events_do_not_force_a_current_emergency(self):
+        for event in ({"severity": "critical", "status": "resolved", "reported_by": "watch"},
+                      {"severity": "critical", "status": "open", "reported_by": "simulator"}):
+            self.assertEqual(agent.assess({**DAY, "watchEvents": [event]}, says(ASSESSMENT))["urgency"], "routine")
+
     def test_checkin_scores_mental_health_like_the_frontend(self):
         out = agent.checkin(CHECKIN, says(CHECKIN_REPLY))
         self.assertTrue(out["completed"])

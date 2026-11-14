@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "db:migrate": "node migrate.js",
     "seed:accounts": "node seed-accounts.js",
     "test": "node --test"
   },

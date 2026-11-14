@@ -27,17 +27,18 @@ def w(sec, word, n=0):
 WHITE, GREY, RED = "#FFFFFF", "#9AA3B2", "#FF4D4D"
 labels, sfx = [], vid.Track(DUR)
 rng = random.Random(5)
+KEYS = 0.12  # keys are for the opening title; after it they are only a whisper under the voice
 
 
 def label(text, start, end, x, y, size, color=WHITE, key=0.35, times=None, align="left", seed=0):
     if times is None: times, _ = vid.type_times(text, start, rng, lo=0.045, hi=0.075, stop_pause=0)
     labels.append({"text": text, "times": [round(t, 3) for t in times], "end": end, "x": x, "y": y, "size": size, "color": color, "align": align})
-    if key: vid.typewriter_sound(sfx, times, text, gain=key, seed=seed)
+    if key: vid.typewriter_sound(sfx, times, text, gain=key * KEYS, seed=seed)
 
 
 def instant(text, start, end, x, y, size, color=WHITE, key=0.35):  # a value that swaps in with one strike
     label(text, start, end, x, y, size, color, key=0, times=[start] * len(text))
-    if key: vid.typewriter_sound(sfx, [start], text[0], gain=key, seed=int(start * 10))
+    if key: vid.typewriter_sound(sfx, [start], text[0], gain=key * KEYS, seed=int(start * 10))
 
 
 # ---- 02 VitaCuff (0-10)
@@ -82,8 +83,8 @@ vid.heartbeat(sfx, vid.accel_beats(14.4, 23.3, 38, 38, 14.5, lambda t: 0.22))   
 vid.heartbeat(sfx, vid.accel_beats(24.0, 27.8, 50, 64, 26.0, lambda t: 0.25))            # after the injection the rate comes back
 vid.heartbeat(sfx, vid.accel_beats(34.3, 38.4, 60, 60, 34.4, lambda t: 0.2))              # the close: steady
 vid.boom(sfx, 38.6, gain=0.9)
-vid.boom(sfx, vc, gain=0.55)
-vid.boom(sfx, 13.58, gain=0.6)
+vid.boom(sfx, vc, gain=0.3, noise=False)
+vid.boom(sfx, 13.58, gain=0.35, noise=False)
 
 fx_wav = os.path.join(HERE, "..", "work", "reel_keys_heart.wav"); sfx.save(fx_wav)
 

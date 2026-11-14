@@ -4,6 +4,7 @@
 export type Tone = 'nominal' | 'warning' | 'critical' | 'fault' | 'info' | 'neutral';
 
 export interface Vital {
+  flags?: string[];
   id: string;
   observed_at: string;
   activity: string | null;
@@ -26,6 +27,7 @@ export interface CrewMember {
   latestVitals: Vital | null;
   latestCheckIn: CheckIn | null;
   openEvents: number;
+  activeEvents?: ConditionEvent[];
 }
 
 export interface ChainMember {

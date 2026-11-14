@@ -133,8 +133,9 @@ def flatline(track, start, end, gain=0.05):
     track.add(start, [math.sin(2 * math.pi * 880 * i / SR) * max(0, 1 - i / n) for i in range(n)], gain)
 
 
-def boom(track, t, gain=0.8):
+def boom(track, t, gain=0.8, noise=True):
     hit = _kick(90, 28, 9, 3.2, 1.6, 1.6)
+    if not noise: track.add(t, hit, gain); return  # pure sub: sits under a spoken word without cracking it
     rng = random.Random(3)
     noise = [(rng.random() * 2 - 1) * math.exp(-i / SR * 18) * 0.25 for i in range(int(0.3 * SR))]
     track.add(t, hit, gain); track.add(t, noise, gain)

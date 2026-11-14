@@ -55,7 +55,8 @@ def assess(day, ask=llm.ask):
         "from the check-in, sleep, mental health and vitals together. List the findings that support it, "
         "with weights that add up to 1. Then write a treatment plan of 1 to 5 items. Mark an item urgent "
         "only if waiting for the on-board decider would risk harm. If nothing is wrong, say so and "
-        "keep the plan to monitoring advice.\n"
+        "keep the plan to monitoring advice. Resolved events are history, not current alarms. "
+        "Simulator events are test scenarios; distinguish them from observed watch events.\n"
         f"Data: {json.dumps(day)}",
         _obj(problem=STR, confidence=NUM, urgency={"type": "string", "enum": URGENCY},
              factors={"type": "array", "items": _obj(
@@ -68,7 +69,10 @@ def assess(day, ask=llm.ask):
     urgency, plan = out["urgency"], out["plan"][:5]
     # a tier 1 watch event in the window is never a routine day, whatever the LLM says. The backend sends
     # condition_events rows, where tier 1 is severity 'critical'; the examples use the watch's own tier field.
-    if urgency == "routine" and any(e.get("tier") == 1 or e.get("severity") == "critical" for e in day.get("watchEvents", [])):
+    if urgency == "routine" and any((e.get("tier") == 1 or e.get("severity") == "critical")
+                                  and e.get("status", "open") in ("open", "monitoring")
+                                  and e.get("reported_by") != "simulator"
+                                  for e in day.get("watchEvents", [])):
         urgency = "urgent"
     score = (day.get("mental") or {}).get("score")
     if score is not None and score < THERAPY_BELOW and not any(p["kind"] == "therapy" for p in plan):
