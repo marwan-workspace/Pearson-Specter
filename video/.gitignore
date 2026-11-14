@@ -10,3 +10,8 @@ build/__pycache__/
 clips/02-vitacuff.mp4
 voiceover/
 ecg/fonts/
+deck/preview*.png
+deck/previews.png
+deck/~$*
+deck/pearson-specter.pptx
+deck/pearson-specter-v2.pptx
