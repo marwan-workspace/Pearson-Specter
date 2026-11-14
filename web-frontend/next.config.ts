@@ -22,7 +22,7 @@ const nextConfig: NextConfig = {
     return [
       { source: '/vitacuff/:path*', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }] },
       // the page and its own code change with the design, so the browser re-checks them (a cheap 304 when unchanged)
-      { source: '/:page(vitacuff|vitacuff-v2)/:file(index.html|main.js|style.css)', headers: [{ key: 'Cache-Control', value: 'no-cache' }] },
+      { source: '/:page(vitacuff|vitacuff-v2)/:file(index.html|main.js|style.css|stage.js)', headers: [{ key: 'Cache-Control', value: 'no-cache' }] },
     ];
   },
 };

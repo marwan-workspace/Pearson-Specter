@@ -66,8 +66,9 @@ def assess(day, ask=llm.ask):
                  text=STR, urgent=BOOL)}),
     ))
     urgency, plan = out["urgency"], out["plan"][:5]
-    # a tier 1 watch event in the window is never a routine day, whatever the LLM says
-    if urgency == "routine" and any(e.get("tier") == 1 for e in day.get("watchEvents", [])):
+    # a tier 1 watch event in the window is never a routine day, whatever the LLM says. The backend sends
+    # condition_events rows, where tier 1 is severity 'critical'; the examples use the watch's own tier field.
+    if urgency == "routine" and any(e.get("tier") == 1 or e.get("severity") == "critical" for e in day.get("watchEvents", [])):
         urgency = "urgent"
     score = (day.get("mental") or {}).get("score")
     if score is not None and score < THERAPY_BELOW and not any(p["kind"] == "therapy" for p in plan):

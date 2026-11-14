@@ -25,7 +25,7 @@ export interface Related {
 
 /**
  * One astronaut's record. The ten streams load in full once, then every 2 s only rows newer than the last one
- * (?since=). Alerts, stock, pending decisions and the saved conversations reload every 10 s and after each action.
+ * (one GET /astronauts/:id/record with a cursor per stream). Alerts, stock, pending decisions and the saved conversations reload every 10 s and after each action.
  */
 export function useRecord(astronautKey: string, isSelf: boolean) {
   const [records, setRecords] = useState<RecordStreams | null>(null);
@@ -50,15 +50,19 @@ export function useRecord(astronautKey: string, isSelf: boolean) {
     try {
       const fresh: Partial<Record<StreamName, Row[]>> = {};
       const next = initial ? {} : { ...cursor.current };
-      // all ten at once: each request costs several round trips to the database, so one after another is slow
-      await Promise.all(STREAMS.map(async (name) => {
+      // all ten streams in one request: the server reads them in one query, each from its own cursor
+      const query = new URLSearchParams();
+      for (const name of STREAMS) {
         // a full load of vitals is the last 3 hours (about 180 rows), which is all the page charts
         const since = next[name] ?? (name === 'vitals' ? new Date(Date.now() - VITALS_WINDOW_MS).toISOString() : undefined);
-        const result = await backendRequest<{ items: Row[] }>(`/astronauts/${key}/${name}${since ? `?since=${encodeURIComponent(since)}` : ''}`);
-        const items = (fresh[name] = result.items || []);
+        if (since) query.set(name, since);
+      }
+      const result = await backendRequest<Partial<Record<StreamName, Row[]>>>(`/astronauts/${key}/record?${query}`);
+      for (const name of STREAMS) {
+        const items = (fresh[name] = result[name] || []);
         const latest = items.map((x) => x[TIME_KEY[name]] as string | null).filter(Boolean).sort((a, b) => Date.parse(b!) - Date.parse(a!))[0];
         if (latest && (!next[name] || Date.parse(latest) > Date.parse(next[name]!))) next[name] = latest;
-      }));
+      }
       cursor.current = next;
       setRecords((prev) => {
         if (initial || !prev) return { ...EMPTY, ...fresh } as RecordStreams;

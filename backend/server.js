@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { saveWatchResult } from './watch-save.js';
 
 const { Pool } = pg;
 const scrypt = promisify(scryptCb);
@@ -135,26 +136,37 @@ async function login(body, res) {
   return { ok: true, ...result };
 }
 
-async function readTable(c, table, id, since) {
-  if(table==='plan') {
-    const after=since&&Number.isFinite(Date.parse(since))?new Date(since).toISOString():null;
-    const result=await c.query(`SELECT p.*,COALESCE(jsonb_agg(jsonb_build_object('id',i.id,'position',i.position,'action_type',i.action_type,
+// An astronaut's record streams: table and the time column each is paged by with ?since=.
+const STREAMS = {
+  vitals: ['vital_samples', 'observed_at'], sleep: ['sleep_sessions', 'started_at'], mental: ['check_ins', 'completed_at'],
+  checkins: ['check_ins', 'started_at'], assessment: ['health_assessments', 'assessed_at'], plan: ['treatment_plans', 'created_at'],
+  medications: ['medication_events', 'proposed_at'], labs: ['lab_results', 'collected_at'], events: ['condition_events', 'started_at'], decisions: ['decisions', 'decided_at'],
+};
+// passed through as given: Postgres keeps microseconds, and cutting the cursor to milliseconds re-sent the newest row every poll
+const sinceParam = (v) => v && Number.isFinite(Date.parse(v)) ? v : null;
+/** One stream's rows for astronaut $1, newer than `since` (an SQL placeholder holding a timestamp or NULL). */
+const streamSql = (name, since) => name === 'plan'
+  ? `SELECT p.*,COALESCE(jsonb_agg(jsonb_build_object('id',i.id,'position',i.position,'action_type',i.action_type,
       'description',i.description,'status',i.status,'starts_at',i.starts_at,'ends_at',i.ends_at) ORDER BY i.position) FILTER (WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
       FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
-      WHERE p.astronaut_id=$1 AND ($2::timestamptz IS NULL OR p.created_at>$2)
-      GROUP BY p.id ORDER BY p.created_at DESC LIMIT 500`,[id,after]);
-    return {items:result.rows};
-  }
-  const spec = {
-    vitals: ['vital_samples', 'observed_at'], sleep: ['sleep_sessions', 'started_at'], mental: ['check_ins', 'completed_at'],
-    checkins: ['check_ins', 'started_at'], assessment: ['health_assessments', 'assessed_at'], plan: ['treatment_plans', 'created_at'],
-    medications: ['medication_events', 'proposed_at'], labs: ['lab_results', 'collected_at'], events: ['condition_events', 'started_at'], decisions: ['decisions', 'decided_at'],
-  }[table];
-  if (!spec) throw new HttpError(404, 'No such astronaut data collection.');
-  const [rel, time] = spec;
-  const after = since && Number.isFinite(Date.parse(since)) ? new Date(since).toISOString() : null;
-  const result = await c.query(`SELECT * FROM ${rel} WHERE astronaut_id=$1 AND ($2::timestamptz IS NULL OR ${time}>$2) ORDER BY ${time} DESC LIMIT 5000`, [id, after]);
+      WHERE p.astronaut_id=$1 AND (${since} IS NULL OR p.created_at>${since}) GROUP BY p.id ORDER BY p.created_at DESC LIMIT 500`
+  : `SELECT * FROM ${STREAMS[name][0]} WHERE astronaut_id=$1 AND (${since} IS NULL OR ${STREAMS[name][1]}>${since}) ORDER BY ${STREAMS[name][1]} DESC LIMIT 5000`;
+
+async function readTable(c, table, id, since) {
+  if (!STREAMS[table]) throw new HttpError(404, 'No such astronaut data collection.');
+  const result = await c.query(streamSql(table, '$2::timestamptz'), [id, sinceParam(since)]);
   return { items: result.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k,v]) => [k, iso(v)]))) };
+}
+
+/** All ten streams in ONE query (the record page polls every 2 s; ten requests at once used up the connection pool).
+ *  Each stream takes its own cursor: ?vitals=<time>&plan=<time>... */
+async function readRecord(c, id, params) {
+  const args = [id];
+  const cols = Object.keys(STREAMS).map((name) => {
+    args.push(sinceParam(params.get(name)));
+    return `COALESCE((SELECT jsonb_agg(x ORDER BY x.${STREAMS[name][1]} DESC) FROM (${streamSql(name, `$${args.length}::timestamptz`)}) x),'[]'::jsonb) AS ${name}`;
+  });
+  return (await c.query(`SELECT ${cols.join(',\n')}`, args)).rows[0];
 }
 
 async function route(req, res, url) {
@@ -173,6 +185,8 @@ async function route(req, res, url) {
     cookie(res, '', 0); return { ok: true };
   }
   if (!token) throw new HttpError(401, 'Sign in to continue.');
+  // the AI commands manage their own short transactions, so none stays open while Gemini answers
+  if (method === 'POST' && ['/checkin','/chat','/assess','/weekly','/emergency'].includes(pathName)) return runAgent(token, pathName.slice(1), body);
 
   return appTransaction(token, async (c) => {
     const a = c.astronaut;
@@ -180,6 +194,8 @@ async function route(req, res, url) {
       const { leader: leaderId, decider: deciderId } = (await c.query('SELECT acting_leader($1) AS leader, decider_for($2) AS decider', [a.mission_id, a.id])).rows[0];
       return { astronaut: { id:a.id, name:a.display_name, callsign:a.callsign, role:a.role, rank:a.command_rank, fitForCommand:a.fit_for_command }, actingLeaderId:leaderId, isActingLeader:leaderId===a.id, deciderId, mission:{ id:a.mission_id, name:a.mission_name, destination:a.destination, earthLinkAvailable:a.earth_link_available, earthRoundTripSeconds:a.earth_round_trip_seconds, earthReviewSeconds:a.earth_review_seconds } };
     }
+    const recordMatch = pathName.match(/^\/astronauts\/([^/]+)\/record$/);
+    if (method === 'GET' && recordMatch) { const id=await resolveAstronaut(c,recordMatch[1]); await assertVisible(c,id); return readRecord(c,id,url.searchParams); }
     const dataMatch = pathName.match(/^\/astronauts\/([^/]+)\/(vitals|sleep|mental|checkins|assessment|plan|medications|labs|events|decisions)$/);
     if (method === 'GET' && dataMatch) { const [, key, table] = dataMatch; const id=await resolveAstronaut(c,key); await assertVisible(c,id); return readTable(c,table,id,url.searchParams.get('since')); }
     if (method === 'GET' && pathName === '/crew/overview') {
@@ -230,8 +246,10 @@ async function route(req, res, url) {
         const evidence=decision.evidence||{}; const newStatus=body.action==='approve'?'planned':'skipped';
         if(evidence.treatmentPlanItemId) await c.query('UPDATE treatment_plan_items SET status=$2 WHERE id=$1',[evidence.treatmentPlanItemId,newStatus]);
         if(evidence.treatmentPlanId) {
-          const anyPending=await c.query("SELECT 1 FROM decisions WHERE outcome='proposed' AND evidence->>'treatmentPlanId'=$1 LIMIT 1",[evidence.treatmentPlanId]);
-          if(!anyPending.rowCount) await c.query('UPDATE treatment_plans SET status=$2,approved_by_astronaut_id=$3,approved_at=now() WHERE id=$1',[evidence.treatmentPlanId,body.action==='approve'?'approved':'rejected',a.id]);
+          // once nothing is pending, the plan is approved if any of its items was, whatever the last click was
+          const p=(await c.query(`SELECT bool_or(outcome='proposed') AS pending, bool_or(outcome='accepted') AS accepted
+            FROM decisions WHERE decision_type='plan_approval' AND evidence->>'treatmentPlanId'=$1`,[evidence.treatmentPlanId])).rows[0];
+          if(!p.pending) await c.query('UPDATE treatment_plans SET status=$2,approved_by_astronaut_id=$3,approved_at=now() WHERE id=$1',[evidence.treatmentPlanId,p.accepted?'approved':'rejected',a.id]);
         }
       }
       return decision;
@@ -346,10 +364,13 @@ async function route(req, res, url) {
       const tests=Array.isArray(body.results)?body.results:[];
       if(!tests.length || tests.length>100) throw new HttpError(400,'Provide 1 to 100 lab result rows.');
       const rows=[];
+      if(body.collectedAt!=null && !Number.isFinite(Date.parse(body.collectedAt))) throw new HttpError(400,'collectedAt must be a date and time.');
+      const optionalNumber=(v)=>v==null||v===''||Number.isFinite(Number(v)), orNull=(v)=>v==null||v===''?null:Number(v);
       for(const x of tests) {
         if(!x.analyte || !Number.isFinite(Number(x.value)) || !x.unit) throw new HttpError(400,'Each lab result needs analyte, numeric value, and unit.');
+        if(!optionalNumber(x.referenceLow) || !optionalNumber(x.referenceHigh)) throw new HttpError(400,'referenceLow and referenceHigh must be numbers.');
         const q=await c.query(`INSERT INTO lab_results(astronaut_id,entered_by_astronaut_id,collected_at,panel_name,analyte,value,unit,reference_low,reference_high,source_notes)
-          VALUES($1,$2,COALESCE($3::timestamptz,now()),$4,$5,$6,$7,$8,$9,$10) RETURNING *`,[subject,a.id,body.collectedAt||null,String(body.panelName||'General').slice(0,100),String(x.analyte).slice(0,100),Number(x.value),String(x.unit).slice(0,30),x.referenceLow??null,x.referenceHigh??null,x.notes??null]);
+          VALUES($1,$2,COALESCE($3::timestamptz,now()),$4,$5,$6,$7,$8,$9,$10) RETURNING *`,[subject,a.id,body.collectedAt||null,String(body.panelName||'General').slice(0,100),String(x.analyte).slice(0,100),Number(x.value),String(x.unit).slice(0,30),orNull(x.referenceLow),orNull(x.referenceHigh),x.notes??null]);
         rows.push(q.rows[0]);
       }
       return {items:rows};
@@ -366,7 +387,6 @@ async function route(req, res, url) {
         WHERE (rs.mission_id IS NULL OR rs.mission_id=$1) AND rs.status='active' ORDER BY rs.created_at DESC,r.condition_key`,[a.mission_id]);
       return {items:q.rows};
     }
-    if(method==='POST' && ['/checkin','/chat','/assess','/weekly','/emergency'].includes(pathName)) return runAgent(c,pathName.slice(1),body);
     if(method==='POST' && pathName==='/simulator/inject') { await requireLeader(c); return inject(c,body.astronautId,body.condition); }
     if(method==='POST' && pathName==='/simulator/sensor-fault') {
       await requireLeader(c); const subject=await resolveAstronaut(c,body.astronautId);
@@ -384,117 +404,134 @@ const vitalSummary=async(c,id,bucket,from,to)=>(await c.query(`SELECT date_trunc
     count(*) FILTER (WHERE sensor_status<>'ok')::int AS sensor_problems
   FROM vital_samples WHERE astronaut_id=$1 AND observed_at>=$3::timestamptz AND observed_at<$4::timestamptz GROUP BY 1 ORDER BY 1`,[id,bucket,from,to])).rows;
 
-// A transaction has one pg client; concurrent query calls are deprecated and still execute serially.
-async function queryInOrder(tasks) {
-  const results=[];
-  for(const task of tasks) results.push(await task());
-  return results;
-}
+const isDate = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d));
 
-async function runAgent(c, command, body) {
-  const astr=body.astronautId ? await resolveAstronaut(c,body.astronautId) : '';
+// Agent commands run in three steps so no database connection or transaction is held while the Python worker
+// and Gemini answer (20 s to a minute): read in one short transaction, ask, then write in a second one.
+async function runAgent(token, command, body) {
   if(command==='weekly') {
-    await requireLeader(c);
     const start=body.periodStart || new Date(Date.now()-7*864e5).toISOString().slice(0,10); const end=body.periodEnd || new Date().toISOString().slice(0,10);
-    if(![start,end].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||start>end) throw new HttpError(400,'periodStart and periodEnd must be dates (YYYY-MM-DD), start first.');
-    // The whole crew's week in ONE round trip (it was 1 + 7 per astronaut, about 10 s against the remote database).
-    const rows=t=>`COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM (${t}) x),'[]'::jsonb)`;
-    const astronauts=(await c.query(`SELECT m.id,
-        ${rows('SELECT * FROM check_ins WHERE astronaut_id=m.id AND check_in_date BETWEEN $2 AND $3')} AS "checkIns",
-        ${rows(`SELECT date_trunc('day',observed_at) AS period,count(*)::int AS samples,
-            round(avg(heart_rate_bpm)::numeric,1) AS hr_avg,min(heart_rate_bpm) AS hr_min,max(heart_rate_bpm) AS hr_max,
-            round(avg(systolic_mmhg)::numeric) AS sys_avg,min(systolic_mmhg) AS sys_min,max(systolic_mmhg) AS sys_max,round(avg(diastolic_mmhg)::numeric) AS dia_avg,
-            min(spo2_percent) AS spo2_min,round(avg(spo2_percent)::numeric,1) AS spo2_avg,max(temperature_c) AS temp_max,max(radiation_rate) AS radiation_max,
-            count(*) FILTER (WHERE sensor_status<>'ok')::int AS sensor_problems
-          FROM vital_samples WHERE astronaut_id=m.id AND observed_at>=$2::date AND observed_at<($3::date + 1) GROUP BY 1 ORDER BY 1`)} AS vitals,
-        ${rows('SELECT * FROM sleep_sessions WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS sleep,
-        ${rows('SELECT * FROM condition_events WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS events,
-        ${rows('SELECT * FROM decisions WHERE astronaut_id=m.id AND decided_at >= $2::date AND decided_at < ($3::date + 1)')} AS decisions,
-        ${rows('SELECT * FROM medication_events WHERE astronaut_id=m.id AND proposed_at >= $2::date AND proposed_at < ($3::date + 1)')} AS medications,
-        ${rows(`SELECT p.*,COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.position) FILTER(WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
-          FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
-          WHERE p.astronaut_id=m.id AND p.created_at >= $2::date AND p.created_at < ($3::date + 1) GROUP BY p.id`)} AS plans
-      FROM astronauts m WHERE m.mission_id=$1 AND m.active ORDER BY m.command_rank`,[c.astronaut.mission_id,start,end])).rows;
+    if(![start,end].every(isDate)||start>end) throw new HttpError(400,'periodStart and periodEnd must be dates (YYYY-MM-DD), start first.');
+    const astronauts=await appTransaction(token, async (c) => {
+      await requireLeader(c);
+      // The whole crew's week in ONE round trip (it was 1 + 7 per astronaut, about 10 s against the remote database).
+      const rows=t=>`COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM (${t}) x),'[]'::jsonb)`;
+      return (await c.query(`SELECT m.id,
+          ${rows('SELECT * FROM check_ins WHERE astronaut_id=m.id AND check_in_date BETWEEN $2 AND $3')} AS "checkIns",
+          ${rows(`SELECT date_trunc('day',observed_at) AS period,count(*)::int AS samples,
+              round(avg(heart_rate_bpm)::numeric,1) AS hr_avg,min(heart_rate_bpm) AS hr_min,max(heart_rate_bpm) AS hr_max,
+              round(avg(systolic_mmhg)::numeric) AS sys_avg,min(systolic_mmhg) AS sys_min,max(systolic_mmhg) AS sys_max,round(avg(diastolic_mmhg)::numeric) AS dia_avg,
+              min(spo2_percent) AS spo2_min,round(avg(spo2_percent)::numeric,1) AS spo2_avg,max(temperature_c) AS temp_max,max(radiation_rate) AS radiation_max,
+              count(*) FILTER (WHERE sensor_status<>'ok')::int AS sensor_problems
+            FROM vital_samples WHERE astronaut_id=m.id AND observed_at>=$2::date AND observed_at<($3::date + 1) GROUP BY 1 ORDER BY 1`)} AS vitals,
+          ${rows('SELECT * FROM sleep_sessions WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS sleep,
+          ${rows('SELECT * FROM condition_events WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS events,
+          ${rows('SELECT * FROM decisions WHERE astronaut_id=m.id AND decided_at >= $2::date AND decided_at < ($3::date + 1)')} AS decisions,
+          ${rows('SELECT * FROM medication_events WHERE astronaut_id=m.id AND proposed_at >= $2::date AND proposed_at < ($3::date + 1)')} AS medications,
+          ${rows(`SELECT p.*,COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.position) FILTER(WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
+            FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
+            WHERE p.astronaut_id=m.id AND p.created_at >= $2::date AND p.created_at < ($3::date + 1) GROUP BY p.id`)} AS plans
+        FROM astronauts m WHERE m.mission_id=$1 AND m.active ORDER BY m.command_rank`,[c.astronaut.mission_id,start,end])).rows;
+    }, true);
     const data=await runPython(['-m','overview','weekly'],{periodStart:start,periodEnd:end,astronauts});
-    const q=await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,period_start,period_end,status,summary,raw_data,flagged_issues)
-      VALUES($1,$2,'weekly',$3,$4,'queued',$5,$6::jsonb,$7::jsonb)
-      ON CONFLICT (mission_id,astronaut_id,report_type,period_start) WHERE report_type='weekly'
-      DO UPDATE SET period_end=EXCLUDED.period_end,summary=EXCLUDED.summary,raw_data=EXCLUDED.raw_data,flagged_issues=EXCLUDED.flagged_issues,
-        -- a rewrite is a new report: it goes to the top of the list and is sent again. EXCLUDED already carries
-        -- the delivery times the BEFORE INSERT trigger worked out, so a link that is down queues it as usual.
-        created_at=now(),status=EXCLUDED.status,sent_at=EXCLUDED.sent_at,arrives_at=EXCLUDED.arrives_at,reply_due_at=EXCLUDED.reply_due_at
-      RETURNING *`,[c.astronaut.mission_id,c.astronaut.id,start,end,JSON.stringify(data.summary),JSON.stringify(data.rawData),JSON.stringify(data.flagged)]);
-    return { ...data, id:q.rows[0].id };
+    return appTransaction(token, async (c) => {
+      await requireLeader(c);
+      // One weekly report per mission and week. The upsert below is keyed on the writer too, so first take over
+      // a report another leader wrote for this week (command can change mid-week); the upsert then rewrites it.
+      await c.query(`UPDATE mission_reports SET astronaut_id=$2 WHERE id=(SELECT id FROM mission_reports
+          WHERE mission_id=$1 AND report_type='weekly' AND period_start=$3 ORDER BY (astronaut_id=$2) DESC, created_at DESC LIMIT 1)
+        AND astronaut_id<>$2`,[c.astronaut.mission_id,c.astronaut.id,start]);
+      const q=await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,period_start,period_end,status,summary,raw_data,flagged_issues)
+        VALUES($1,$2,'weekly',$3,$4,'queued',$5,$6::jsonb,$7::jsonb)
+        ON CONFLICT (mission_id,astronaut_id,report_type,period_start) WHERE report_type='weekly'
+        DO UPDATE SET period_end=EXCLUDED.period_end,summary=EXCLUDED.summary,raw_data=EXCLUDED.raw_data,flagged_issues=EXCLUDED.flagged_issues,
+          -- a rewrite is a new report: it goes to the top of the list and is sent again. EXCLUDED already carries
+          -- the delivery times the BEFORE INSERT trigger worked out, so a link that is down queues it as usual.
+          created_at=now(),status=EXCLUDED.status,sent_at=EXCLUDED.sent_at,arrives_at=EXCLUDED.arrives_at,reply_due_at=EXCLUDED.reply_due_at
+        RETURNING *`,[c.astronaut.mission_id,c.astronaut.id,start,end,JSON.stringify(data.summary),JSON.stringify(data.rawData),JSON.stringify(data.flagged)]);
+      return { ...data, id:q.rows[0].id };
+    });
   }
-  if(!astr) throw new HttpError(400,'astronautId is required.'); await assertVisible(c,astr);
-  if(command!=='assess' && astr!==c.astronaut.id) throw new HttpError(403,'This agent action is available only for your own astronaut account.');
-  if(command==='assess') {
-    const [vital,sleep,mental,checks,events]=await queryInOrder([
-      () => vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString()),
-      () => c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 ORDER BY started_at DESC LIMIT 7',[astr]),
-      () => c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1',[astr]),
-      () => c.query('SELECT * FROM check_in_answers WHERE check_in_id=(SELECT id FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1)',[astr]),
-      () => c.query("SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at>now()-interval '24 hours' ORDER BY started_at DESC",[astr]),
-    ]);
-    const day={astronautId:astr,date:body.date||new Date().toISOString().slice(0,10),vitals24h:vital,sleep:sleep.rows,
-      mental:mental.rows[0]?{score:mental.rows[0].mental_health_score}:null,checkIn:{record:mental.rows[0]||null,answers:checks.rows},watchEvents:events.rows};
-    const data=await runPython(['-m','overview','assess'],day);
-    const assessment=(await c.query(`INSERT INTO health_assessments(astronaut_id,window_start,window_end,root_cause_summary,contributing_data,urgency)
-      VALUES($1,now()-interval '24 hours',now(),$2,$3::jsonb,$4) RETURNING id`,[astr,data.rootCause.problem,JSON.stringify({rootCause:data.rootCause}),data.urgency])).rows[0];
-    const planStatus=data.plan.some(p=>p.approval!=='not-required')?'awaiting_approval':'active';
-    const plan=(await c.query(`INSERT INTO treatment_plans(astronaut_id,health_assessment_id,created_by,urgency,status,rationale)
-      VALUES($1,$2,'manager_agent',$3,$4,$5) RETURNING id`,[astr,assessment.id,data.urgency,planStatus,data.rootCause.problem])).rows[0];
-    for(let i=0;i<data.plan.length;i++) {
-      const p=data.plan[i]; const status=p.approval==='not-required'?'in_progress':'planned';
-      const item=(await c.query(`INSERT INTO treatment_plan_items(treatment_plan_id,position,action_type,description,status) VALUES($1,$2,$3,$4,$5) RETURNING id`,[plan.id,i,p.kind,p.text,status])).rows[0];
-      if(p.approval!=='not-required') await c.query(`INSERT INTO decisions(astronaut_id,decision_type,actor,rationale,evidence,proposed_action,outcome)
-        VALUES($1,'plan_approval','manager_agent',$2,$3::jsonb,$4,'proposed')`,[astr,p.text,JSON.stringify({treatmentPlanId:plan.id,treatmentPlanItemId:item.id}),p.text]);
+
+  const date=body.date||new Date().toISOString().slice(0,10);
+  if(!isDate(date)) throw new HttpError(400,'date must be a date (YYYY-MM-DD).');
+  // 1. who it is about, and what the agent needs to know
+  const read=await appTransaction(token, async (c) => {
+    const astr=body.astronautId ? await resolveAstronaut(c,body.astronautId) : '';
+    if(!astr) throw new HttpError(400,'astronautId is required.'); await assertVisible(c,astr);
+    if(command!=='assess' && astr!==c.astronaut.id) throw new HttpError(403,'This agent action is available only for your own astronaut account.');
+    if(command==='assess') {
+      const vital=await vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString());
+      const sleep=await c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 ORDER BY started_at DESC LIMIT 7',[astr]);
+      const mental=await c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1',[astr]);
+      const checks=await c.query('SELECT * FROM check_in_answers WHERE check_in_id=(SELECT id FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1)',[astr]);
+      const events=await c.query("SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at>now()-interval '24 hours' ORDER BY started_at DESC",[astr]);
+      return {astr,input:{astronautId:astr,date,vitals24h:vital,sleep:sleep.rows,
+        mental:mental.rows[0]?{score:mental.rows[0].mental_health_score}:null,checkIn:{record:mental.rows[0]||null,answers:checks.rows},watchEvents:events.rows}};
     }
-    return { ...data, assessmentId:assessment.id, planId:plan.id };
-  }
-  if(command==='checkin') {
-    const messages=Array.isArray(body.messages)?body.messages:[];
-    const data=await runPython(['-m','overview','checkin'],{...body,astronautId:astr});
-    const date=body.date||new Date().toISOString().slice(0,10);
-    const transcript=[...messages,{from:'agent',text:data.message?.text||'',at:data.message?.at||Date.now()}];
-    // sleep is stored once, by the message that completes the check-in, not again for every later message
-    const wasCompleted=(await c.query('SELECT status FROM check_ins WHERE astronaut_id=$1 AND check_in_date=$2',[astr,date])).rows[0]?.status==='completed';
-    const q=await c.query(`INSERT INTO check_ins(astronaut_id,check_in_date,started_at,completed_at,status,mood_score,mental_health_score,reported_symptoms,agent_summary,transcript)
-      VALUES($1,$2,now(),CASE WHEN $3 THEN now() ELSE NULL END,CASE WHEN $3 THEN 'completed' ELSE 'in_progress' END,$4,$5,$6,$7,$8::jsonb)
-      ON CONFLICT(astronaut_id,check_in_date) DO UPDATE SET completed_at=EXCLUDED.completed_at,status=EXCLUDED.status,mood_score=EXCLUDED.mood_score,
-        mental_health_score=COALESCE(EXCLUDED.mental_health_score,check_ins.mental_health_score),reported_symptoms=COALESCE(EXCLUDED.reported_symptoms,check_ins.reported_symptoms),agent_summary=EXCLUDED.agent_summary,transcript=EXCLUDED.transcript RETURNING id`,
-        [astr,date,data.completed,data.mental?.score??null,data.mental?.score??null,data.answers?.symptoms??null,data.message?.text??null,JSON.stringify(transcript)]);
-    const checkId=q.rows[0].id;
-    const answers={...(data.answers||{}),...(data.mental?{mentalAnswers:data.mental.answers}:{})};
-    // lists (the five mental-health answers) are kept as JSON text; neither value column could hold them before
-    for(const [key,value] of Object.entries(answers)) if(value!==undefined&&value!==null) await c.query(`INSERT INTO check_in_answers(check_in_id,question_key,answer_text,answer_number) VALUES($1,$2,$3,$4)
-      ON CONFLICT(check_in_id,question_key) DO UPDATE SET answer_text=EXCLUDED.answer_text,answer_number=EXCLUDED.answer_number,answered_at=now()`,[checkId,key,typeof value==='string'?value:typeof value==='object'?JSON.stringify(value):null,typeof value==='number'?value:null]);
-    if(data.completed&&!wasCompleted&&Number.isFinite(data.answers?.sleepHours)) await c.query(`INSERT INTO sleep_sessions(astronaut_id,started_at,ended_at,source,reported_hours,quality_score,notes)
-      VALUES($1,now()-interval '1 day',now()-interval '1 day'+($2*interval '1 hour'),'check_in',$2,$3,$4)`,[astr,data.answers.sleepHours,data.answers.sleepRating?data.answers.sleepRating*20:null,data.answers.symptoms]);
-    return { ...data, checkInId:checkId };
-  }
-  if(command==='chat') {
-    const vitals=await vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString());
-    const mental=await c.query('SELECT mental_health_score FROM check_ins WHERE astronaut_id=$1 AND mental_health_score IS NOT NULL ORDER BY check_in_date DESC LIMIT 1',[astr]);
-    const data=await runPython(['-m','overview','chat'],{...body,context:{vitals24h:vitals,mental:mental.rows[0]||null}});
-    const safeSummary=mental.rows[0]?.mental_health_score==null?'Private manager-agent chat closed.':`Private manager-agent chat closed; latest mental-health score is ${mental.rows[0].mental_health_score}/100.`;
-    // the client sends the whole history each turn: keep one conversation and store only what is new
-    const messages=Array.isArray(body.messages)?body.messages:[];
-    let convId=body.conversationId?(await c.query('SELECT id FROM agent_conversations WHERE id::text=$1 AND astronaut_id=$2',[String(body.conversationId),astr])).rows[0]?.id:null;
-    const reused=!!convId;
-    if(reused) await c.query('UPDATE agent_conversations SET summary=$2,ended_at=now() WHERE id=$1',[convId,safeSummary]);
-    else convId=(await c.query(`INSERT INTO agent_conversations(astronaut_id,channel,status,summary,ended_at) VALUES($1,'dashboard','closed',$2,now()) RETURNING id`,[astr,safeSummary])).rows[0].id;
-    for(const m of reused?messages.slice(-1):messages) await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,$2,$3)`,[convId,m.from==='astronaut'?'astronaut':'manager_agent',String(m.text||'').slice(0,8000)]);
-    await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,'manager_agent',$2)`,[convId,String(data.message?.text||'')]);
-    return { ...data, conversationId:convId };
-  }
-  if(command==='emergency') {
-    const data=await runPython(['-m','overview','emergency'],body);
+    if(command==='chat') {
+      const vitals=await vitalSummary(c,astr,'hour',new Date(Date.now()-864e5).toISOString(),new Date().toISOString());
+      const mental=(await c.query('SELECT mental_health_score FROM check_ins WHERE astronaut_id=$1 AND mental_health_score IS NOT NULL ORDER BY check_in_date DESC LIMIT 1',[astr])).rows[0]||null;
+      return {astr,mental,input:{...body,context:{vitals24h:vitals,mental}}};
+    }
+    return {astr,input:command==='checkin'?{...body,date,astronautId:astr}:body};
+  }, true);
+  const {astr}=read;
+  // 2. ask, with no connection held
+  const data=await runPython(['-m','overview',command],read.input);
+  // 3. store the answer
+  return appTransaction(token, async (c) => {
+    if(command==='assess') {
+      const assessment=(await c.query(`INSERT INTO health_assessments(astronaut_id,window_start,window_end,root_cause_summary,contributing_data,urgency)
+        VALUES($1,now()-interval '24 hours',now(),$2,$3::jsonb,$4) RETURNING id`,[astr,data.rootCause.problem,JSON.stringify({rootCause:data.rootCause}),data.urgency])).rows[0];
+      const planStatus=data.plan.some(p=>p.approval!=='not-required')?'awaiting_approval':'active';
+      const plan=(await c.query(`INSERT INTO treatment_plans(astronaut_id,health_assessment_id,created_by,urgency,status,rationale)
+        VALUES($1,$2,'manager_agent',$3,$4,$5) RETURNING id`,[astr,assessment.id,data.urgency,planStatus,data.rootCause.problem])).rows[0];
+      for(let i=0;i<data.plan.length;i++) {
+        const p=data.plan[i]; const status=p.approval==='not-required'?'in_progress':'planned';
+        const item=(await c.query(`INSERT INTO treatment_plan_items(treatment_plan_id,position,action_type,description,status) VALUES($1,$2,$3,$4,$5) RETURNING id`,[plan.id,i,p.kind,p.text,status])).rows[0];
+        if(p.approval!=='not-required') await c.query(`INSERT INTO decisions(astronaut_id,decision_type,actor,rationale,evidence,proposed_action,outcome)
+          VALUES($1,'plan_approval','manager_agent',$2,$3::jsonb,$4,'proposed')`,[astr,p.text,JSON.stringify({treatmentPlanId:plan.id,treatmentPlanItemId:item.id}),p.text]);
+      }
+      return { ...data, assessmentId:assessment.id, planId:plan.id };
+    }
+    if(command==='checkin') {
+      const messages=Array.isArray(body.messages)?body.messages:[];
+      const transcript=[...messages,{from:'agent',text:data.message?.text||'',at:data.message?.at||Date.now()}];
+      // sleep is stored once, by the message that completes the check-in, not again for every later message
+      const wasCompleted=(await c.query('SELECT status FROM check_ins WHERE astronaut_id=$1 AND check_in_date=$2',[astr,date])).rows[0]?.status==='completed';
+      const q=await c.query(`INSERT INTO check_ins(astronaut_id,check_in_date,started_at,completed_at,status,mood_score,mental_health_score,reported_symptoms,agent_summary,transcript)
+        VALUES($1,$2,now(),CASE WHEN $3 THEN now() ELSE NULL END,CASE WHEN $3 THEN 'completed' ELSE 'in_progress' END,$4,$5,$6,$7,$8::jsonb)
+        ON CONFLICT(astronaut_id,check_in_date) DO UPDATE SET completed_at=EXCLUDED.completed_at,status=EXCLUDED.status,mood_score=EXCLUDED.mood_score,
+          mental_health_score=COALESCE(EXCLUDED.mental_health_score,check_ins.mental_health_score),reported_symptoms=COALESCE(EXCLUDED.reported_symptoms,check_ins.reported_symptoms),agent_summary=EXCLUDED.agent_summary,transcript=EXCLUDED.transcript RETURNING id`,
+          [astr,date,data.completed,data.mental?.score??null,data.mental?.score??null,data.answers?.symptoms??null,data.message?.text??null,JSON.stringify(transcript)]);
+      const checkId=q.rows[0].id;
+      const answers={...(data.answers||{}),...(data.mental?{mentalAnswers:data.mental.answers}:{})};
+      // lists (the five mental-health answers) are kept as JSON text; neither value column could hold them before
+      for(const [key,value] of Object.entries(answers)) if(value!==undefined&&value!==null) await c.query(`INSERT INTO check_in_answers(check_in_id,question_key,answer_text,answer_number) VALUES($1,$2,$3,$4)
+        ON CONFLICT(check_in_id,question_key) DO UPDATE SET answer_text=EXCLUDED.answer_text,answer_number=EXCLUDED.answer_number,answered_at=now()`,[checkId,key,typeof value==='string'?value:typeof value==='object'?JSON.stringify(value):null,typeof value==='number'?value:null]);
+      if(data.completed&&!wasCompleted&&Number.isFinite(data.answers?.sleepHours)) await c.query(`INSERT INTO sleep_sessions(astronaut_id,started_at,ended_at,source,reported_hours,quality_score,notes)
+        VALUES($1,now()-interval '1 day',now()-interval '1 day'+($2*interval '1 hour'),'check_in',$2,$3,$4)`,[astr,data.answers.sleepHours,data.answers.sleepRating?data.answers.sleepRating*20:null,data.answers.symptoms]);
+      return { ...data, checkInId:checkId };
+    }
+    if(command==='chat') {
+      const score=read.mental?.mental_health_score;
+      const safeSummary=score==null?'Private manager-agent chat closed.':`Private manager-agent chat closed; latest mental-health score is ${score}/100.`;
+      // the client sends the whole history each turn: keep one conversation and store only what is new
+      const messages=Array.isArray(body.messages)?body.messages:[];
+      let convId=body.conversationId?(await c.query('SELECT id FROM agent_conversations WHERE id::text=$1 AND astronaut_id=$2',[String(body.conversationId),astr])).rows[0]?.id:null;
+      const reused=!!convId;
+      if(reused) await c.query('UPDATE agent_conversations SET summary=$2,ended_at=now() WHERE id=$1',[convId,safeSummary]);
+      else convId=(await c.query(`INSERT INTO agent_conversations(astronaut_id,channel,status,summary,ended_at) VALUES($1,'dashboard','closed',$2,now()) RETURNING id`,[astr,safeSummary])).rows[0].id;
+      for(const m of reused?messages.slice(-1):messages) await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,$2,$3)`,[convId,m.from==='astronaut'?'astronaut':'manager_agent',String(m.text||'').slice(0,8000)]);
+      await c.query(`INSERT INTO agent_messages(conversation_id,speaker,message_text) VALUES($1,'manager_agent',$2)`,[convId,String(data.message?.text||'')]);
+      return { ...data, conversationId:convId };
+    }
+    // emergency
     const result=await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,summary,raw_data,flagged_issues)
       VALUES($1,$2,'emergency',$3,$4::jsonb,$5::jsonb) RETURNING *`,[c.astronaut.mission_id,astr,data.summary?.[astr]||'Emergency event',JSON.stringify(data.rawData||{}),JSON.stringify(data.flagged||[])]);
     return { ...data, id:result.rows[0].id };
-  }
-  throw new HttpError(404,'Unknown agent command.');
+  });
 }
 
 async function inject(c, astronautId, condition) {
@@ -531,43 +568,7 @@ async function watchTick() {
   catch(e) { console.error('watch worker:',e.message); return; }
   for(const [i,member] of crew.entries()) {
     const {reading}=inputs[i]; const result=results[i];
-    const decision=result.decision; const metric={hr:reading.hr_mean,sys:reading.bp_sys,dia:reading.bp_dia,spo2:reading.spo2,temp:reading.temp,radiation:reading.radiation};
-    await watchTransaction(async c=>{
-      await c.query(`INSERT INTO vital_samples(astronaut_id,observed_at,source,activity,heart_rate_bpm,systolic_mmhg,diastolic_mmhg,spo2_percent,temperature_c,radiation_rate,radiation_rate_unit,sensor_status,payload)
-        VALUES($1,now(),'watch',$2,$3,$4,$5,$6,$7,$8,'µSv/h',$9,$10::jsonb)`,[member.id,result.state,metric.hr,metric.sys,metric.dia,metric.spo2,metric.temp,metric.radiation,result.flags.includes('sensor_fault')?'fault':'ok',JSON.stringify({reading,flags:result.flags})]);
-      const current=!result.flags.length || decision.condition==='none' ? '' : decision.condition;
-      // one event per episode: close watch events whose condition has cleared, and do not repeat one still open
-      await c.query(`UPDATE condition_events SET status='resolved',ended_at=now() WHERE astronaut_id=$1 AND reported_by='watch'
-        AND status IN ('open','monitoring') AND condition_key<>$2`,[member.id,current]);
-      if(!current) return;
-      if((await c.query(`SELECT 1 FROM condition_events WHERE astronaut_id=$1 AND reported_by='watch' AND condition_key=$2
-        AND status IN ('open','monitoring')`,[member.id,current])).rowCount) return;
-      const rule=(await c.query(`SELECT r.id FROM rules r JOIN rule_sets rs ON rs.id=r.rule_set_id WHERE rs.mission_id=$1 AND rs.status='active' AND r.condition_key=$2 AND r.enabled ORDER BY rs.created_at DESC LIMIT 1`,[member.mission_id,decision.condition])).rows[0];
-      const severity=decision.tier===1?'critical':decision.tier===2?'high':'moderate';
-      const ev=(await c.query(`INSERT INTO condition_events(astronaut_id,started_at,condition_key,severity,reported_by,summary)
-        VALUES($1,now(),$2,$3,'watch',$4) RETURNING id`,[member.id,decision.condition,severity,decision.explanation])).rows[0];
-      // the first stocked drug named in the rule's text: "lorazepam or midazolam" -> lorazepam (tests/test_watch.py checks every rule)
-      const medicationId=['low_oxygen','sensor_fault'].includes(decision.condition)?null:(await c.query(`SELECT id FROM medications
-        WHERE strpos(lower($1),lower(name))>0 ORDER BY strpos(lower($1),lower(name)) LIMIT 1`,[String(decision.medication||'')])).rows[0]?.id||null;
-      const decisionType=decision.tier===1?'tier1_auto':decision.tier===2?'tier2_dose':medicationId?'tier3_medication':'watch_event';
-      const outcome=decisionType==='watch_event'?'accepted':'proposed';
-      const d=(await c.query(`INSERT INTO decisions(astronaut_id,condition_event_id,rule_id,decision_type,actor,rationale,evidence,proposed_action,outcome)
-      VALUES($1,$2,$3,$4,'watch_llm',$5,$6::jsonb,$7,$8) RETURNING id`,[member.id,ev.id,rule?.id||null,decisionType,decision.explanation,JSON.stringify({reading,flags:result.flags,activity:result.state,source:decision.source}),decision.action,outcome])).rows[0];
-      let medicationEventId=null;
-      if(medicationId) {
-        const status=decision.action==='auto_inject'?'proposed':decision.action==='ask_confirm'?'awaiting_confirmation':'crew_action_required';
-        const cancelUntil=decision.action==='auto_inject'?new Date(Date.now()+15_000):null;
-        medicationEventId=(await c.query(`INSERT INTO medication_events(astronaut_id,mission_id,medication_id,condition_event_id,decision_id,proposed_at,cancel_until,status,notes)
-          VALUES($1,$2,$3,$4,$5,now(),$6,$7,$8) RETURNING id`,[member.id,member.mission_id,medicationId,ev.id,d.id,cancelUntil,status,decision.explanation])).rows[0].id;
-      }
-      const recipients=await c.query('SELECT id FROM astronauts WHERE mission_id=$1 AND active AND id<>$2',[member.mission_id,member.id]);
-      if(decision.tier===1||decision.tier===3) for(const r of recipients.rows) await c.query(`INSERT INTO crew_alerts(condition_event_id,medication_event_id,recipient_id,alert_text,action_instructions)
-        VALUES($1,$2,$3,$4,$5) ON CONFLICT(condition_event_id,recipient_id) DO NOTHING`,[ev.id,medicationEventId,r.id,`${member.callsign} needs help: ${decision.condition}`,`${decision.first_response}${decision.medication?`. ${decision.medication}`:''}`]);
-      // same text as overview.agent.emergency_report, built here so no Python process runs inside this transaction
-      if(decision.tier===1 || decision.condition==='low_oxygen') await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,summary,raw_data,flagged_issues)
-        VALUES($1,$2,'emergency',$3,$4::jsonb,$5::jsonb)`,[member.mission_id,member.id,`${decision.condition}: ${decision.action}, ${decision.medication||'no medication'}. ${decision.explanation}`,
-        JSON.stringify({decision,reading}),JSON.stringify([decision.condition])]);
-    });
+    await watchTransaction((c) => saveWatchResult(c, member, reading, result));
   }
 }
 
@@ -630,16 +631,40 @@ async function processDeadlines() {
   });
 }
 
+// The background jobs must run once per database, not once per backend: teammates point several laptops at the
+// same hosted database. The process that holds this advisory lock (a database-wide flag that Postgres releases
+// when the holder's connection closes) runs them; every other backend skips them and keeps trying, so the work
+// moves on if the holder stops. Needs a session connection (Supabase pooler port 5432, not 6543).
+const JOBS_LOCK = 724810001;
+let lockClient = null, jobRunner = false;
+async function holdJobsLock() {
+  if (jobRunner) return true;
+  try {
+    if (!lockClient) {
+      const c = new pg.Client({ connectionString: process.env.DATABASE_URL, application_name: 'crew-jobs-lock' });
+      const lost = () => { if (lockClient === c) { lockClient = null; jobRunner = false; } };
+      c.on('error', lost); c.on('end', lost);
+      lockClient = c;
+      await c.connect();
+    }
+    jobRunner = (await lockClient.query('SELECT pg_try_advisory_lock($1) AS ok', [JOBS_LOCK])).rows[0].ok;
+  } catch (e) {
+    console.error('background jobs lock:', e.message);
+    const c = lockClient; lockClient = null; jobRunner = false; c?.end().catch(() => {});
+  }
+  return jobRunner;
+}
+
 let watchBusy=false;
 async function backgroundTick() {
   if(watchBusy) return; watchBusy=true;
-  try { await watchTick(); } catch(e) { console.error('background watch tick:',e); }
+  try { if(await holdJobsLock()) await watchTick(); } catch(e) { console.error('background watch tick:',e); }
   finally { watchBusy=false; }
 }
 let deadlineBusy=false;
 async function deadlineTick() {
   if(deadlineBusy) return; deadlineBusy=true;
-  try { await processDeadlines(); } catch(e) { console.error('background deadline tick:',e); }
+  try { if(await holdJobsLock()) await processDeadlines(); } catch(e) { console.error('background deadline tick:',e); }
   finally { deadlineBusy=false; }
 }
 
@@ -659,8 +684,10 @@ const server = http.createServer(async (req,res) => {
 server.listen(PORT, () => console.log(`JavaScript backend listening on http://localhost:${PORT}/backend`));
 if(process.env.WATCH_ENABLED!=='false') {
   setInterval(backgroundTick, Math.max(5000,Number(process.env.WATCH_TICK_MS||60_000)));
-  setInterval(deadlineTick, 1_000);
+  // every 5 s: one pass is about nine remote round trips (~3 s), and the 15 s cancel window and the 60 s and
+  // 12 h escalations need no finer timing
+  setInterval(deadlineTick, 5_000);
   void deadlineTick();
   void backgroundTick();
 }
-process.on('SIGTERM', async () => { server.close(); await Promise.all([pool.end(),watchPool.end()]); process.exit(0); });
+process.on('SIGTERM', async () => { server.close(); await Promise.all([pool.end(),watchPool.end(),lockClient?.end().catch(() => {})]); process.exit(0); });

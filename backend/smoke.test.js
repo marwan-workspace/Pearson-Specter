@@ -61,6 +61,44 @@ test('plan approval persists a valid item status and approves the parent plan', 
   } finally { await db.end(); }
 });
 
+test('a plan with one item rejected and the last one approved ends approved', { skip: !URL && 'set DATABASE_URL_TEST' }, async () => {
+  const db = new pg.Pool({ connectionString: URL });
+  try {
+    const subject = (await db.query("SELECT id FROM astronauts WHERE callsign='KWAME'")).rows[0].id;
+    const plan = (await db.query("INSERT INTO treatment_plans(astronaut_id,created_by,urgency,status) VALUES($1,'manager_agent','routine','awaiting_approval') RETURNING id", [subject])).rows[0];
+    const ids = [];
+    for (const position of [0, 1]) {
+      const item = (await db.query("INSERT INTO treatment_plan_items(treatment_plan_id,position,action_type,description) VALUES($1,$2,'monitoring','Step') RETURNING id", [plan.id, position])).rows[0];
+      ids.push((await db.query("INSERT INTO decisions(astronaut_id,decision_type,actor,evidence,outcome) VALUES($1,'plan_approval','manager_agent',$2,'proposed') RETURNING id", [subject, JSON.stringify({ treatmentPlanId: plan.id, treatmentPlanItemId: item.id })])).rows[0].id);
+    }
+    const { cookie } = await login('elena');
+    assert.equal((await call(`/decisions/${ids[0]}`, { cookie, body: { action: 'reject' } })).status, 200);
+    assert.equal((await call(`/decisions/${ids[1]}`, { cookie, body: { action: 'approve' } })).status, 200);
+    assert.equal((await db.query('SELECT status FROM treatment_plans WHERE id=$1', [plan.id])).rows[0].status, 'approved');
+  } finally { await db.end(); }
+});
+
+test('the watch opens one event per episode and closes it when the reading clears', { skip: !URL && 'set DATABASE_URL_TEST' }, async () => {
+  const { saveWatchResult } = await import('./watch-save.js');
+  const db = new pg.Pool({ connectionString: URL });
+  try {
+    const member = (await db.query("SELECT id,callsign,mission_id FROM astronauts WHERE callsign='MAYA'")).rows[0];
+    const reading = { hr_mean: 128, bp_sys: 120, bp_dia: 78, spo2: 98, temp: 36.8, radiation: 0.2 };
+    const flagged = { state: 'rest', flags: ['hr_high'], decision: { condition: 'tachycardia', tier: 3, action: 'alert_crewmate', medication: '', explanation: 'smoke test', first_response: 'Check on them', source: 'rules' } };
+    const tick = async (result) => {
+      const c = await db.connect();
+      try { await c.query('BEGIN'); await c.query('SET LOCAL ROLE watch_service'); await saveWatchResult(c, member, reading, result); await c.query('COMMIT'); }
+      catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+    };
+    const open = async () => (await db.query("SELECT count(*)::int AS n FROM condition_events WHERE astronaut_id=$1 AND reported_by='watch' AND status IN ('open','monitoring')", [member.id])).rows[0].n;
+    await tick(flagged);
+    await tick(flagged);
+    assert.equal(await open(), 1, 'a reading that stays flagged does not open a second event');
+    await tick({ state: 'rest', flags: [], decision: { condition: 'none' } });
+    assert.equal(await open(), 0, 'a clear reading closes the episode');
+  } finally { await db.end(); }
+});
+
 test('five wrong PINs lock an account until the leader unlocks it', { skip: !URL && 'set DATABASE_URL_TEST' }, async () => {
   for (let i = 1; i <= 5; i++) assert.equal((await login('hiro', '0000')).status, i < 5 ? 401 : 423);
   assert.equal((await login('hiro')).status, 423, 'the right PIN does not open a locked account');

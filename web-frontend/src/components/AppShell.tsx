@@ -131,18 +131,14 @@ function Shell({ children }: { children: ReactNode }) {
               <p className="text-sm font-semibold leading-tight">{me.astronaut.name}</p>
               <p className="label">{me.isActingLeader ? 'Acting team leader' : `Crew · rank ${me.astronaut.rank}`}</p>
             </div>
-            {/* VitaCuff 3D walkthrough: a static page in public/vitacuff, so a plain link and not a Next route */}
-            <a href="/vitacuff/index.html" target="_blank" rel="noopener" className="btn btn-quiet px-3" title="Open the 3D walkthrough of the VitaCuff wrist unit in a new tab">
-              <Watch className="size-4" aria-hidden />
-              <span className="hidden sm:inline">Wrist unit 3D</span>
-              <span className="sr-only sm:hidden">Open the wrist unit 3D walkthrough</span>
-            </a>
-            {/* version 2: the sleeve redesign, a static page in public/vitacuff-v2 */}
-            <a href="/vitacuff-v2/index.html" target="_blank" rel="noopener" className="btn btn-quiet px-3" title="Open the 3D walkthrough of the VitaCuff v2 wrist sleeve in a new tab">
-              <Watch className="size-4" aria-hidden />
-              <span className="hidden sm:inline">Wrist unit 3D v2</span>
-              <span className="sr-only sm:hidden">Open the wrist unit 3D walkthrough, version 2</span>
-            </a>
+            {/* VitaCuff 3D walkthroughs (v1, and v2 the sleeve redesign): static pages in public/, so plain links and not Next routes */}
+            {([['vitacuff', ''], ['vitacuff-v2', ' v2']] as const).map(([dir, v]) => (
+              <a key={dir} href={`/${dir}/index.html`} target="_blank" rel="noopener" className="btn btn-quiet px-3" title={`Open the 3D walkthrough of the VitaCuff${v} wrist unit in a new tab`}>
+                <Watch className="size-4" aria-hidden />
+                <span className="hidden sm:inline">Wrist unit 3D{v}</span>
+                <span className="sr-only sm:hidden">Open the wrist unit 3D walkthrough{v && ', version 2'}</span>
+              </a>
+            ))}
             <ThemeToggle />
             <button className="btn btn-quiet px-3" disabled={leaving} aria-label="Sign out"
               onClick={async () => { setLeaving(true); try { await logout(); } finally { setLeaving(false); } }}>

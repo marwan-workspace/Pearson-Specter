@@ -47,6 +47,11 @@ class OverviewTest(unittest.TestCase):
         self.assertEqual(agent.assess(day, says(ASSESSMENT))["urgency"], "urgent")
         self.assertEqual(agent.assess(DAY, says(ASSESSMENT))["urgency"], "routine")
 
+    def test_critical_condition_event_row_is_never_a_routine_day(self):
+        # what backend/server.js really sends: condition_events rows, which carry severity and no tier
+        row = {"condition_key": "shock", "severity": "critical", "status": "open", "reported_by": "watch"}
+        self.assertEqual(agent.assess({**DAY, "watchEvents": [row]}, says(ASSESSMENT))["urgency"], "urgent")
+
     def test_checkin_scores_mental_health_like_the_frontend(self):
         out = agent.checkin(CHECKIN, says(CHECKIN_REPLY))
         self.assertTrue(out["completed"])
