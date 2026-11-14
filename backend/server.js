@@ -19,6 +19,8 @@ const SESSION_MS = 12 * 60 * 60 * 1000;
 // Leave headroom in the hosted session pool for other clients and maintenance.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, application_name: 'crew-api' });
 const watchPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, application_name: 'crew-watch' });
+pool.on('error',e=>console.error('idle db client error:',e.message)); watchPool.on('error',e=>console.error('idle watch db client error:',e.message)); // the pooler drops idle connections; without this the process crashes
+for (const p of [pool, watchPool]) p.on('connect', client => client.on('error', e => console.error('db client error:', e.message))); // a reset mid-query fails that request instead of crashing the server
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const sha256 = (v) => createHash('sha256').update(v).digest('hex');
