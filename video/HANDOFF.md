@@ -57,3 +57,8 @@ Dashboard: backend `cd backend && npm start` (port 8000), frontend `cd web-front
 - Rebuild: `cd build && python reel_audio.py`, then from `video/`: `node <motion-reel>/scripts/render.mjs --film reel --fps 30 --noblur --video-only`, `node <motion-reel>/scripts/sfx.mjs reel`, `cd build && python assemble.py ../final/pearson-specter-hook.mp4`.
 - Known soft spot: the screencast frames are 1280x720 upscaled; fine on a projector, slightly soft in the tightest zooms.
 - Don't commit `reel/fonts/` (Microsoft fonts), `node_modules/`, `work/`, `out/`.
+
+## Update 2 (same day)
+- Keys only on the opening title; after it they are a whisper (problem 0.05, reel x0.12).
+- Minimal ECG over the hook black screen (`ecg/` film, spikes on the beat times `clip_hook.py` writes to `work/hook_beats.json`). Render it, then `ffmpeg -i clips/00-hook.mp4 -i out/ecg/video_16x9.mp4 -filter_complex "[0:v][1:v]blend=all_mode=lighten,format=yuv420p[v]" -map "[v]" -map 0:a -c:a copy work/hook_ecg.mp4` before `assemble.py`.
+- Booms under spoken words are pure subs now (no noise burst): the title hit cracked the voice at 0:32. Score ducks under the voice.

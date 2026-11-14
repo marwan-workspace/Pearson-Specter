@@ -9,3 +9,4 @@ build/*.filter.txt
 build/__pycache__/
 clips/02-vitacuff.mp4
 voiceover/
+ecg/fonts/

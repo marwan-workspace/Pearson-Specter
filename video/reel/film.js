@@ -12,7 +12,7 @@ const cast = await fetch('../work/dash/frames.json').then((r) => r.json());   //
 
 // [seconds, label, sfx, opts] -> HITS in beats (grid: 120 bpm from 0, so beat = 2 x seconds)
 const S = [
-  [1.26, 'VitaCuff emerges', 'impact', { gain: 0.5 }],
+  [1.26, 'VitaCuff emerges', 'impact', { gain: 0.28 }],
   [4.40, 'cut: live screen', 'whoosh', { len: 0.35, gain: 0.22 }],
   [6.93, 'cut: syringe bay', 'whoosh', { len: 0.35, gain: 0.22 }],
   [8.67, '3/3 loaded', 'thud', { gain: 0.4 }],
@@ -20,7 +20,7 @@ const S = [
   [11.40, 'simulate menu', 'click', { gain: 0.2 }],
   [11.95, 'bradycardia', 'click', { gain: 0.2 }],
   [12.55, 'confirm', 'click', { gain: 0.25 }],
-  [13.58, 'ALERT', 'impact', { gain: 0.75 }],
+  [13.58, 'ALERT', 'impact', { gain: 0.45 }],
   [16.10, 'cut: pipeline', 'whoosh', { len: 0.4, gain: 0.25 }],
   [18.85, 'pan: rule book', 'whoosh', { len: 0.4, gain: 0.2 }],
   [23.30, 'cut: care', 'whoosh', { len: 0.4, gain: 0.25 }],

@@ -24,6 +24,7 @@ vid.heartbeat(sfx, beats)
 vid.typewriter_sound(sfx, times, TEXT, gain=0.8)
 vid.flatline(sfx, STOPS_END + 0.1, DUR, gain=0.06)
 wav = os.path.join(vid.SCRATCH, "hook_sfx.wav"); sfx.save(wav)
+json.dump({"beats": [round(b[0], 3) for b in beats], "fade_at": FADE_AT, "flat_at": STOPS_END + 0.1, "dur": DUR}, open(os.path.join(vid.SCRATCH, "..", "work", "hook_beats.json"), "w"))  # the ECG film draws on these
 
 y = 1080 // 2 - SIZE // 2
 filters = vid.typed_text(TEXT, times, vid.mono_x(TEXT, SIZE), y, SIZE, fade_at=FADE_AT, cursor_until=FADE_AT)
