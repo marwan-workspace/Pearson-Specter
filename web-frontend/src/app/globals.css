@@ -57,45 +57,45 @@
   color-scheme: dark;
 }
 
-/* Light theme: the same token names re-valued as white frosted glass. Accents are darkened to clear 4.5:1. */
+/* Light theme: white instrument panels on a cool blue-white canvas, navy ink, one blue for every action.
+   Dark stays graphite and amber. Every text colour clears 4.5:1 on the darkest light surface (#e8eef7). */
 :root[data-theme='light'] {
-  --bg-void: #e6edf6;
-  --bg-panel: #eef3f9;
-  --bg-panel-elevated: #dbe4ef;
+  --bg-void: #f3f6fb;
+  --bg-panel: #ffffff;
+  --bg-panel-elevated: #e8eef7;
   --bg-ambient-mesh:
-    radial-gradient(circle at 12% 18%, rgba(245, 158, 11, 0.08) 0%, transparent 42%),
-    radial-gradient(circle at 86% 82%, rgba(59, 130, 246, 0.14) 0%, transparent 48%),
-    radial-gradient(circle at 50% 45%, rgba(244, 63, 94, 0.05) 0%, transparent 58%);
+    radial-gradient(circle at 12% 18%, rgba(29, 78, 216, 0.07) 0%, transparent 42%),
+    radial-gradient(circle at 86% 82%, rgba(14, 116, 144, 0.07) 0%, transparent 48%);
 
-  --glass-surface: rgba(255, 255, 255, 0.66);
-  --glass-surface-hover: rgba(255, 255, 255, 0.86);
-  --glass-subcard: rgba(226, 232, 240, 0.62);
-  --glass-hud-floating: rgba(255, 255, 255, 0.9);
-  --glass-border: rgba(15, 23, 42, 0.1);
-  --glass-border-accent: rgba(146, 64, 14, 0.45);
-  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
-  --glass-shadow: 0 20px 45px -18px rgba(15, 23, 42, 0.25);
+  --glass-surface: rgba(255, 255, 255, 0.86);
+  --glass-surface-hover: rgba(255, 255, 255, 0.97);
+  --glass-subcard: rgba(232, 238, 247, 0.72);
+  --glass-hud-floating: rgba(255, 255, 255, 0.94);
+  --glass-border: rgba(11, 26, 51, 0.1);
+  --glass-border-accent: rgba(29, 78, 216, 0.42);
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 14px 34px -16px rgba(11, 26, 51, 0.22);
 
-  --accent-primary: #92400e;
-  --accent-primary-glow: rgba(146, 64, 14, 0.1);
-  --accent-primary-hover: #78350f;
-  --accent-secondary: #1d4ed8;
+  --accent-primary: #1d4ed8;
+  --accent-primary-glow: rgba(29, 78, 216, 0.1);
+  --accent-primary-hover: #1e40af;
+  --accent-secondary: #0e7490;
   --accent-violet: #6d28d9;
   --on-accent: #ffffff;
 
   --status-nominal: #047857;
-  --status-nominal-glow: rgba(4, 120, 87, 0.12);
-  --status-warning: #b45309;
-  --status-warning-glow: rgba(180, 83, 9, 0.12);
+  --status-nominal-glow: rgba(4, 120, 87, 0.1);
+  --status-warning: #a3470a;
+  --status-warning-glow: rgba(163, 71, 10, 0.1);
   --status-critical: #be123c;
-  --status-critical-glow: rgba(190, 18, 60, 0.1);
+  --status-critical-glow: rgba(190, 18, 60, 0.08);
   --status-fault: #7e22ce;
-  --status-fault-glow: rgba(126, 34, 206, 0.1);
+  --status-fault-glow: rgba(126, 34, 206, 0.08);
 
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --control-border: rgba(71, 85, 105, 0.6);
+  --text-primary: #0b1a33;
+  --text-secondary: #44546a;
+  --text-muted: #5a6a80;
+  --control-border: #7b8aa0; /* solid, so inputs keep 3:1 on every light surface */
 
   color-scheme: light;
 }

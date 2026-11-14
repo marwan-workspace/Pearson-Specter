@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useState, type CSSProperties } from 'react';
-import { ChevronRight, ClipboardList, Crown, FileText, Inbox, Radio, Rocket, Users, Wifi, WifiOff } from 'lucide-react';
+import { CheckCheck, ChevronRight, ClipboardList, Crown, FileText, Inbox, Radio, Rocket, Users, Wifi, WifiOff } from 'lucide-react';
 import { backendRequest, useSession } from '@/lib/session';
 import { usePoll, useNow } from '@/lib/hooks';
 import { dateTime, isStale, num, timeAgo, words } from '@/lib/format';
@@ -111,6 +111,24 @@ export function CrewOverview() {
     finally { setBusy(null); }
   }
 
+  /** Approves every waiting decision one at a time (a plan is closed only after its last item, so they must not race). */
+  async function approveAll() {
+    const queue = decisions;
+    let ok = 0; const failed: string[] = [];
+    for (const [i, d] of queue.entries()) {
+      setBusy(`all:${i + 1}/${queue.length}`);
+      try {
+        await backendRequest(`/decisions/${d.id}`, { method: 'POST', body: JSON.stringify({ action: 'approve' }) });
+        ok++; setDecisions((prev) => prev.filter((x) => x.id !== d.id));
+      } catch (e) { failed.push(`${d.subject_name || 'Crew member'}: ${e instanceof Error ? e.message : 'failed'}`); }
+    }
+    setNotice(failed.length
+      ? { tone: 'warning', text: `Approved ${ok} of ${queue.length}. Not approved: ${failed.join(' ')}` }
+      : { tone: 'nominal', text: `All ${ok} decisions approved.` });
+    await refresh();
+    setBusy(null);
+  }
+
   if (!me) return null;
   const mission = command?.mission;
   const location = (mission?.destination || me.mission.destination || '').toLowerCase();
@@ -124,7 +142,7 @@ export function CrewOverview() {
           <p className="label">{me.mission.name} · acting team leader</p>
           <h1 className="display mt-1 text-3xl md:text-4xl">Crew overview</h1>
         </div>
-        <button className={`btn btn-primary ${busy === 'weekly' ? 'working' : ''}`} disabled={!!busy} onClick={() => void run('weekly', 'Weekly report written and queued for Earth.', '/weekly', week())}>
+        <button className={`btn btn-primary ${busy === 'weekly' ? 'working' : ''}`} disabled={!!busy} onClick={() => void run('weekly', 'Weekly report written. It is at the top of Mission reports.', '/weekly', week())}>
           {busy === 'weekly' ? <Spinner /> : <FileText className="size-4" aria-hidden />}
           {busy === 'weekly' ? 'Writing report…' : 'Write weekly report'}
         </button>
@@ -165,6 +183,12 @@ export function CrewOverview() {
           {!crew ? <SkeletonRows /> : decisions.length === 0 ? (
             <EmptyState icon={Inbox} title="No decisions are waiting" hint="Treatment plans and doses that need your approval show up here." />
           ) : (
+            <div className="grid gap-3">
+            {decisions.length > 1 && (
+              <ConfirmButton className={`btn btn-sm btn-primary justify-self-start ${busy?.startsWith('all:') ? 'working' : ''}`} confirmLabel={`Approve all ${decisions.length}?`} disabled={!!busy} onConfirm={() => void approveAll()}>
+                {busy?.startsWith('all:') ? <><Spinner />Approving {busy.slice(4)}…</> : <><CheckCheck className="size-4" aria-hidden />Approve all {decisions.length}</>}
+              </ConfirmButton>
+            )}
             <ul className="grid gap-3">
               {decisions.map((d) => (
                 <li key={d.id} className="alert-in well p-3">
@@ -182,6 +206,7 @@ export function CrewOverview() {
                 </li>
               ))}
             </ul>
+            </div>
           )}
         </Panel>
 

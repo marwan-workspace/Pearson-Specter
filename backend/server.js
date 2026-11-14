@@ -62,7 +62,7 @@ const runPython = (args, input, timeoutMs = 65_000) => new Promise((resolve, rej
   child.stdin.end(JSON.stringify(input));
 });
 
-async function appTransaction(token, fn) {
+async function appTransaction(token, fn, readOnly = false) {
   const c = await pool.connect();
   try {
     // The whole session setup goes to the database as ONE message: with a remote database every round trip
@@ -83,7 +83,11 @@ async function appTransaction(token, fn) {
       c.astronaut = a.rows[0];
     }
     const out = await fn(c);
-    await c.query('COMMIT'); return out;
+    // A read has nothing to lose, so its COMMIT is not awaited: that saves one remote round trip (~350 ms) per poll.
+    // pg queues queries per client, so whoever borrows this client next still runs after the COMMIT.
+    if (readOnly) c.query('COMMIT').catch(() => {});
+    else await c.query('COMMIT');
+    return out;
   } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; }
   finally { c.release(); }
 }
@@ -173,7 +177,7 @@ async function route(req, res, url) {
   return appTransaction(token, async (c) => {
     const a = c.astronaut;
     if (method === 'GET' && pathName === '/me') {
-      const leaderId = await actingLeader(c, a.mission_id); const deciderId = await deciderFor(c, a.id);
+      const { leader: leaderId, decider: deciderId } = (await c.query('SELECT acting_leader($1) AS leader, decider_for($2) AS decider', [a.mission_id, a.id])).rows[0];
       return { astronaut: { id:a.id, name:a.display_name, callsign:a.callsign, role:a.role, rank:a.command_rank, fitForCommand:a.fit_for_command }, actingLeaderId:leaderId, isActingLeader:leaderId===a.id, deciderId, mission:{ id:a.mission_id, name:a.mission_name, destination:a.destination, earthLinkAvailable:a.earth_link_available, earthRoundTripSeconds:a.earth_round_trip_seconds, earthReviewSeconds:a.earth_review_seconds } };
     }
     const dataMatch = pathName.match(/^\/astronauts\/([^/]+)\/(vitals|sleep|mental|checkins|assessment|plan|medications|labs|events|decisions)$/);
@@ -275,10 +279,12 @@ async function route(req, res, url) {
     const ackMatch=pathName.match(/^\/alerts\/([^/]+)\/ack$/);
     if (method==='POST' && ackMatch) { const q=await c.query("UPDATE crew_alerts SET status='acknowledged',acknowledged_at=now() WHERE id=$1 AND recipient_id=$2 AND status='pending' RETURNING *",[ackMatch[1],a.id]); if(!q.rowCount) throw new HttpError(404,'Alert not found or already acknowledged.'); return q.rows[0]; }
     if (method==='GET' && pathName==='/command') {
-      const roster=await c.query('SELECT id,display_name,callsign,command_rank,fit_for_command,active FROM astronauts WHERE mission_id=$1 ORDER BY command_rank',[a.mission_id]);
-      const handovers=await c.query('SELECT * FROM command_handovers WHERE mission_id=$1 ORDER BY created_at DESC LIMIT 100',[a.mission_id]);
-      const mission=(await c.query('SELECT destination,earth_link_available,earth_round_trip_seconds,earth_review_seconds FROM missions WHERE id=$1',[a.mission_id])).rows[0];
-      return { actingLeaderId:await actingLeader(c,a.mission_id), crew:roster.rows, handovers:handovers.rows, mission };
+      // one round trip instead of four: this is polled every 2 s by the leader dashboard
+      const q=(await c.query(`SELECT acting_leader($1) AS "actingLeaderId",
+          COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.command_rank) FROM (SELECT id,display_name,callsign,command_rank,fit_for_command,active FROM astronauts WHERE mission_id=$1) x),'[]'::jsonb) AS crew,
+          COALESCE((SELECT jsonb_agg(to_jsonb(h) ORDER BY h.created_at DESC) FROM (SELECT * FROM command_handovers WHERE mission_id=$1 ORDER BY created_at DESC LIMIT 100) h),'[]'::jsonb) AS handovers,
+          (SELECT to_jsonb(m) FROM (SELECT destination,earth_link_available,earth_round_trip_seconds,earth_review_seconds FROM missions WHERE id=$1) m) AS mission`,[a.mission_id])).rows[0];
+      return q;
     }
     if(method==='POST' && pathName==='/command/earth-link') {
       await requireLeader(c);
@@ -367,7 +373,7 @@ async function route(req, res, url) {
       const q=await c.query('SELECT simulate_sensor_fault($1) AS event_id',[subject]); return {eventId:q.rows[0].event_id};
     }
     throw new HttpError(404,'Backend endpoint not found.');
-  });
+  }, method === 'GET');
 }
 
 // Gemini gets one summary row per hour or day, not the watch's one row per minute (1,440 a day per astronaut)
@@ -389,29 +395,34 @@ async function runAgent(c, command, body) {
   const astr=body.astronautId ? await resolveAstronaut(c,body.astronautId) : '';
   if(command==='weekly') {
     await requireLeader(c);
-    const members=(await c.query('SELECT id FROM astronauts WHERE mission_id=$1 AND active ORDER BY command_rank',[c.astronaut.mission_id])).rows;
     const start=body.periodStart || new Date(Date.now()-7*864e5).toISOString().slice(0,10); const end=body.periodEnd || new Date().toISOString().slice(0,10);
     if(![start,end].every(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d)))||start>end) throw new HttpError(400,'periodStart and periodEnd must be dates (YYYY-MM-DD), start first.');
-    const astronauts=[]; const dayAfterEnd=new Date(Date.parse(end)+864e5).toISOString().slice(0,10);
-    for(const m of members) {
-      const [checkins,vitals,sleep,events,decisions,medications,plans]=await queryInOrder([
-        () => c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 AND check_in_date BETWEEN $2 AND $3',[m.id,start,end]),
-        () => vitalSummary(c,m.id,'day',start,dayAfterEnd),
-        () => c.query('SELECT * FROM sleep_sessions WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
-        () => c.query('SELECT * FROM condition_events WHERE astronaut_id=$1 AND started_at >= $2::date AND started_at < ($3::date + 1)',[m.id,start,end]),
-        () => c.query('SELECT * FROM decisions WHERE astronaut_id=$1 AND decided_at >= $2::date AND decided_at < ($3::date + 1)',[m.id,start,end]),
-        () => c.query('SELECT * FROM medication_events WHERE astronaut_id=$1 AND proposed_at >= $2::date AND proposed_at < ($3::date + 1)',[m.id,start,end]),
-        () => c.query(`SELECT p.*,COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.position) FILTER(WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
+    // The whole crew's week in ONE round trip (it was 1 + 7 per astronaut, about 10 s against the remote database).
+    const rows=t=>`COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM (${t}) x),'[]'::jsonb)`;
+    const astronauts=(await c.query(`SELECT m.id,
+        ${rows('SELECT * FROM check_ins WHERE astronaut_id=m.id AND check_in_date BETWEEN $2 AND $3')} AS "checkIns",
+        ${rows(`SELECT date_trunc('day',observed_at) AS period,count(*)::int AS samples,
+            round(avg(heart_rate_bpm)::numeric,1) AS hr_avg,min(heart_rate_bpm) AS hr_min,max(heart_rate_bpm) AS hr_max,
+            round(avg(systolic_mmhg)::numeric) AS sys_avg,min(systolic_mmhg) AS sys_min,max(systolic_mmhg) AS sys_max,round(avg(diastolic_mmhg)::numeric) AS dia_avg,
+            min(spo2_percent) AS spo2_min,round(avg(spo2_percent)::numeric,1) AS spo2_avg,max(temperature_c) AS temp_max,max(radiation_rate) AS radiation_max,
+            count(*) FILTER (WHERE sensor_status<>'ok')::int AS sensor_problems
+          FROM vital_samples WHERE astronaut_id=m.id AND observed_at>=$2::date AND observed_at<($3::date + 1) GROUP BY 1 ORDER BY 1`)} AS vitals,
+        ${rows('SELECT * FROM sleep_sessions WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS sleep,
+        ${rows('SELECT * FROM condition_events WHERE astronaut_id=m.id AND started_at >= $2::date AND started_at < ($3::date + 1)')} AS events,
+        ${rows('SELECT * FROM decisions WHERE astronaut_id=m.id AND decided_at >= $2::date AND decided_at < ($3::date + 1)')} AS decisions,
+        ${rows('SELECT * FROM medication_events WHERE astronaut_id=m.id AND proposed_at >= $2::date AND proposed_at < ($3::date + 1)')} AS medications,
+        ${rows(`SELECT p.*,COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.position) FILTER(WHERE i.id IS NOT NULL),'[]'::jsonb) AS items
           FROM treatment_plans p LEFT JOIN treatment_plan_items i ON i.treatment_plan_id=p.id
-          WHERE p.astronaut_id=$1 AND p.created_at >= $2::date AND p.created_at < ($3::date + 1) GROUP BY p.id`,[m.id,start,end]),
-      ]);
-      astronauts.push({id:m.id,checkIns:checkins.rows,vitals,sleep:sleep.rows,events:events.rows,decisions:decisions.rows,medications:medications.rows,plans:plans.rows});
-    }
+          WHERE p.astronaut_id=m.id AND p.created_at >= $2::date AND p.created_at < ($3::date + 1) GROUP BY p.id`)} AS plans
+      FROM astronauts m WHERE m.mission_id=$1 AND m.active ORDER BY m.command_rank`,[c.astronaut.mission_id,start,end])).rows;
     const data=await runPython(['-m','overview','weekly'],{periodStart:start,periodEnd:end,astronauts});
     const q=await c.query(`INSERT INTO mission_reports(mission_id,astronaut_id,report_type,period_start,period_end,status,summary,raw_data,flagged_issues)
       VALUES($1,$2,'weekly',$3,$4,'queued',$5,$6::jsonb,$7::jsonb)
       ON CONFLICT (mission_id,astronaut_id,report_type,period_start) WHERE report_type='weekly'
-      DO UPDATE SET period_end=EXCLUDED.period_end,summary=EXCLUDED.summary,raw_data=EXCLUDED.raw_data,flagged_issues=EXCLUDED.flagged_issues
+      DO UPDATE SET period_end=EXCLUDED.period_end,summary=EXCLUDED.summary,raw_data=EXCLUDED.raw_data,flagged_issues=EXCLUDED.flagged_issues,
+        -- a rewrite is a new report: it goes to the top of the list and is sent again. EXCLUDED already carries
+        -- the delivery times the BEFORE INSERT trigger worked out, so a link that is down queues it as usual.
+        created_at=now(),status=EXCLUDED.status,sent_at=EXCLUDED.sent_at,arrives_at=EXCLUDED.arrives_at,reply_due_at=EXCLUDED.reply_due_at
       RETURNING *`,[c.astronaut.mission_id,c.astronaut.id,start,end,JSON.stringify(data.summary),JSON.stringify(data.rawData),JSON.stringify(data.flagged)]);
     return { ...data, id:q.rows[0].id };
   }

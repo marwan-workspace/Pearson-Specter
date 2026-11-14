@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { ZONES, type TelemetryEngine, type ZoneId, type ZoneStatus } from '@/lib/telemetry';
 
 /**
@@ -18,19 +20,72 @@ import { ZONES, type TelemetryEngine, type ZoneId, type ZoneStatus } from '@/lib
  */
 
 const ANCHOR: Record<ZoneId, [number, number, number]> = {
-  helmet: [0, 1.84, 0.16], cardio: [0, 1.46, 0.26], wrist: [0.5, 0.98, 0.12], rightArm: [-0.47, 1.06, 0.08],
-  plss: [0, 1.5, -0.42], metabolic: [0, 1.1, 0.22], legs: [0.14, 0.42, 0.1],
+  helmet: [0, 1.66, 0.12], cardio: [0, 1.32, 0.1], wrist: [0.445, 1.02, 0.05], rightArm: [-0.4, 1.12, 0.0],
+  plss: [0, 1.3, -0.33], metabolic: [0, 1.0, 0.08], legs: [0.12, 0.42, 0.06],
 };
 /** Where the camera sits to look at each zone. */
 const VIEW: Record<ZoneId, [number, number, number]> = {
-  helmet: [0.55, 2.0, 1.25], cardio: [0.5, 1.55, 1.45], wrist: [1.45, 1.1, 1.0], rightArm: [-1.4, 1.2, 1.05],
-  plss: [-0.95, 1.7, -1.45], metabolic: [0.6, 1.15, 1.5], legs: [0.9, 0.6, 1.6],
+  helmet: [0.5, 1.8, 1.15], cardio: [0.45, 1.4, 1.4], wrist: [1.35, 1.15, 0.95], rightArm: [-1.3, 1.25, 1.0],
+  plss: [-0.9, 1.5, -1.45], metabolic: [0.55, 1.05, 1.45], legs: [0.85, 0.6, 1.6],
 };
-const HOME_CAM: [number, number, number] = [1.5, 1.45, 3.1];
-const HOME_TARGET: [number, number, number] = [0, 1.02, 0];
+const HOME_CAM: [number, number, number] = [1.4, 1.35, 3.0];
+const HOME_TARGET: [number, number, number] = [0, 0.95, 0];
 const VENTING: ZoneId[] = ['rightArm', 'helmet', 'legs', 'plss'];
 const PARTICLES = 420;
 const SCAN_MS = 2600;
+/** Each zone as body segments (suit space, ACES at 1.8 m): the real suit glows wherever its cloth lies inside one. */
+type V3 = [number, number, number];
+const seg = (zone: ZoneId, a: V3, b: V3, r: number) => ({ zone, a, b, r });
+const SEGMENTS = [
+  seg('helmet', [0, 1.6, -0.04], [0, 1.7, -0.04], 0.2),
+  seg('cardio', [0, 1.38, -0.07], [0, 1.24, -0.07], 0.25),
+  seg('plss', [0, 1.42, -0.24], [0, 1.12, -0.24], 0.17),
+  seg('metabolic', [0, 1.12, -0.07], [0, 0.86, -0.07], 0.23),
+  ...([[1, 'wrist'], [-1, 'rightArm']] as const).flatMap(([s, zone]) => [
+    seg(zone, [s * 0.25, 1.42, -0.07], [s * 0.38, 1.16, -0.06], 0.11),
+    seg(zone, [s * 0.38, 1.16, -0.06], [s * 0.37, 0.92, 0.13], 0.1),
+  ]),
+  ...[1, -1].flatMap((s) => [
+    seg('legs', [s * 0.11, 0.8, -0.07], [s * 0.12, 0.5, -0.05], 0.13),
+    seg('legs', [s * 0.12, 0.5, -0.05], [s * 0.12, 0.0, 0.0], 0.13),
+  ]),
+];
+const SUIT_HEIGHT = 1.8;
+const SUIT_TURN = Math.PI; // the file faces -z; the twin faces +z
+
+/**
+ * The X-ray look for the suit: a see-through shell whose edges glow (fresnel), with fine scan lines and a bright
+ * band that travels head to feet. Additive and depth-free, so the anatomy inside always shows through.
+ */
+function xrayMaterial(color: THREE.Color, { scan = true, base = 0.05, rim = 0.55, power = 2.4 } = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: { color: { value: color.clone() }, time: { value: 0 } },
+    defines: { SCAN: scan ? 1 : 0, BASE: base.toFixed(3), RIM: rim.toFixed(3), POWER: power.toFixed(3) },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide,
+    vertexShader: `
+      varying vec3 vNormal; varying vec3 vView; varying float vY;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vec4 mv = viewMatrix * world;
+        vNormal = normalize(normalMatrix * normal);
+        vView = normalize(-mv.xyz);
+        vY = world.y;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform vec3 color; uniform float time;
+      varying vec3 vNormal; varying vec3 vView; varying float vY;
+      void main() {
+        float rim = pow(1.0 - abs(dot(vNormal, vView)), POWER);
+        float a = BASE + RIM * rim;
+        #if SCAN == 1
+          float band = exp(-pow((vY - (2.05 - mod(time * 0.35, 2.4))) * 9.0, 2.0));
+          a = a * (0.85 + 0.15 * sin(vY * 420.0)) + 0.35 * band;
+        #endif
+        gl_FragColor = vec4(color * a, a);
+      }`,
+  });
+}
 
 export interface SuitViewportProps {
   engine: TelemetryEngine;
@@ -126,91 +181,249 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     };
     const sphere = (r: number) => new THREE.SphereGeometry(r, 32, 24);
 
+    // Proportioned to the ACES suit measured at 1.8 m: torso centred at z = -0.07, shoulders at y 1.42,
+    // elbows out at x 0.38, gloves held a little forward at y 0.93.
     // helmet, visor, neck ring
-    add(sphere(0.2), shell.helmet, 'helmet', [0, 1.84, 0], [1, 1.03, 1.02]);
-    add(sphere(0.168), visor, 'helmet', [0, 1.845, 0.066], [1, 0.92, 0.9]);
-    add(new THREE.TorusGeometry(0.135, 0.026, 12, 40), metal, 'helmet', [0, 1.665, 0], undefined, [Math.PI / 2, 0, 0]);
-    add(new THREE.BoxGeometry(0.05, 0.03, 0.05), glow, 'helmet', [0.17, 1.9, 0.1]); // helmet lamp
-    // hard upper torso with the chest display and control module
-    const hut = add(sphere(0.27), shell.cardio, 'cardio', [0, 1.42, 0], [1.1, 0.96, 0.84]);
-    add(new THREE.BoxGeometry(0.22, 0.15, 0.07), joint, 'cardio', [0, 1.4, 0.225]);
-    add(new THREE.PlaneGeometry(0.16, 0.07), glow, 'cardio', [0, 1.42, 0.262]);
-    for (const x of [-0.07, 0, 0.07]) add(new THREE.CylinderGeometry(0.012, 0.012, 0.02, 12), metal, 'cardio', [x, 1.355, 0.262], undefined, [Math.PI / 2, 0, 0]);
-    // PLSS backpack: frame, two O2 tanks, coolant manifold, antenna
-    add(new THREE.BoxGeometry(0.46, 0.6, 0.2), shell.plss, 'plss', [0, 1.45, -0.29]);
-    for (const x of [-0.115, 0.115]) add(new THREE.CapsuleGeometry(0.058, 0.36, 6, 16), metal, 'plss', [x, 1.45, -0.41]);
-    add(new THREE.TorusGeometry(0.09, 0.016, 10, 28), glow, 'plss', [0, 1.16, -0.36], undefined, [Math.PI / 2.4, 0, 0]);
-    add(new THREE.CylinderGeometry(0.006, 0.006, 0.3, 8), metal, 'plss', [0.19, 1.9, -0.3]);
-    const beaconTip = add(sphere(0.016), glow, 'plss', [0.19, 2.06, -0.3]);
-    // core metabolic zone: abdomen, pelvis, waist bearing
-    add(new THREE.CylinderGeometry(0.225, 0.205, 0.24, 32), shell.metabolic, 'metabolic', [0, 1.15, 0], [1, 1, 0.82]);
-    add(sphere(0.23), shell.metabolic, 'metabolic', [0, 0.99, 0], [1, 0.62, 0.8]);
-    add(new THREE.TorusGeometry(0.2, 0.022, 12, 44), metal, 'metabolic', [0, 1.045, 0], [1, 0.82, 1], [Math.PI / 2, 0, 0]);
+    add(sphere(0.155), shell.helmet, 'helmet', [0, 1.64, -0.04], [1, 1.08, 1.05]);
+    add(sphere(0.13), visor, 'helmet', [0, 1.64, 0.01], [1, 0.9, 0.9]);
+    add(new THREE.TorusGeometry(0.12, 0.022, 12, 40), metal, 'helmet', [0, 1.49, -0.05], undefined, [Math.PI / 2, 0, 0]);
+    // upper torso: heart and lungs, with the chest display
+    const hut = add(sphere(0.25), shell.cardio, 'cardio', [0, 1.3, -0.07], [1.12, 0.82, 0.68]);
+    add(new THREE.PlaneGeometry(0.14, 0.06), glow, 'cardio', [0, 1.3, 0.1]);
+    // life support: the oxygen and cooling pack on the back, with its beacon
+    add(new THREE.BoxGeometry(0.4, 0.42, 0.09), shell.plss, 'plss', [0, 1.28, -0.27]);
+    const beaconTip = add(sphere(0.014), glow, 'plss', [0.15, 1.52, -0.3]);
+    // core metabolic zone: abdomen and pelvis
+    add(new THREE.CylinderGeometry(0.2, 0.19, 0.2, 32), shell.metabolic, 'metabolic', [0, 1.06, -0.07], [1, 1, 0.75]);
+    add(sphere(0.2), shell.metabolic, 'metabolic', [0, 0.9, -0.07], [1, 0.6, 0.75]);
     // arms: the astronaut's left (+x) carries the watch; the right (-x) is the glove-seal zone
     for (const side of [1, -1] as const) {
       const zone: ZoneId = side === 1 ? 'wrist' : 'rightArm';
-      add(sphere(0.1), joint, zone, [side * 0.31, 1.56, 0]);
-      limb([side * 0.34, 1.52, 0], [side * 0.43, 1.27, 0.02], 0.078, zone);
-      add(sphere(0.082), joint, zone, [side * 0.44, 1.23, 0.025]);
-      limb([side * 0.45, 1.19, 0.035], [side * 0.48, 0.97, 0.1], 0.07, zone);
-      add(new THREE.TorusGeometry(0.068, 0.014, 10, 28), metal, zone, [side * 0.485, 0.93, 0.11], undefined, [Math.PI / 2, 0, 0]);
-      add(sphere(0.078), shell[zone], zone, [side * 0.49, 0.85, 0.125], [1, 1.15, 0.9]);
+      add(sphere(0.085), joint, zone, [side * 0.27, 1.42, -0.07]);
+      limb([side * 0.28, 1.4, -0.07], [side * 0.38, 1.17, -0.06], 0.075, zone);
+      add(sphere(0.07), joint, zone, [side * 0.385, 1.15, -0.05]);
+      limb([side * 0.385, 1.14, -0.04], [side * 0.37, 1.0, 0.06], 0.062, zone);
+      add(new THREE.TorusGeometry(0.06, 0.012, 10, 28), metal, zone, [side * 0.37, 0.99, 0.07], undefined, [Math.PI / 2.6, 0, 0]);
+      add(sphere(0.065), shell[zone], zone, [side * 0.37, 0.93, 0.14], [1, 1.1, 0.9]);
     }
-    add(new THREE.BoxGeometry(0.075, 0.1, 0.055), joint, 'wrist', [0.535, 1.0, 0.12]); // hybrid watch module
-    const watchSensor = add(new THREE.PlaneGeometry(0.045, 0.06), glow.clone(), 'wrist', [0.564, 1.0, 0.12], undefined, [0, Math.PI / 2, 0]);
-    // legs and magnetic boots
+    const watchBody = add(new THREE.BoxGeometry(0.05, 0.075, 0.06), joint, 'wrist', [0.415, 1.02, 0.05]); // hybrid watch module
+    const watchSensor = add(new THREE.PlaneGeometry(0.036, 0.05), glow.clone(), 'wrist', [0.441, 1.02, 0.05], undefined, [0, Math.PI / 2, 0]);
+    const watchParts: THREE.Object3D[] = [watchBody, watchSensor];
+    // legs and boots
     for (const side of [1, -1] as const) {
-      limb([side * 0.12, 0.93, 0], [side * 0.13, 0.64, 0.01], 0.105, 'legs');
-      add(sphere(0.1), joint, 'legs', [side * 0.13, 0.59, 0.015]);
-      limb([side * 0.13, 0.53, 0.01], [side * 0.13, 0.22, 0], 0.088, 'legs');
-      add(new THREE.TorusGeometry(0.09, 0.016, 10, 28), metal, 'legs', [side * 0.13, 0.17, 0], undefined, [Math.PI / 2, 0, 0]);
-      add(new THREE.BoxGeometry(0.18, 0.13, 0.33), joint, 'legs', [side * 0.13, 0.065, 0.045]);
-      add(new THREE.BoxGeometry(0.185, 0.02, 0.335), glow, 'legs', [side * 0.13, 0.008, 0.045]); // magnetic sole
+      limb([side * 0.11, 0.82, -0.07], [side * 0.12, 0.52, -0.05], 0.1, 'legs');
+      add(sphere(0.085), joint, 'legs', [side * 0.12, 0.5, -0.05]);
+      limb([side * 0.12, 0.47, -0.05], [side * 0.12, 0.16, -0.06], 0.08, 'legs');
+      add(new THREE.BoxGeometry(0.16, 0.12, 0.3), joint, 'legs', [side * 0.12, 0.06, 0.02]);
+      add(new THREE.BoxGeometry(0.165, 0.016, 0.305), glow, 'legs', [side * 0.12, 0.006, 0.02]); // magnetic sole
     }
+
+    // ── the real suit: NASA's Advanced Crew Escape Suit (NASA 3D Resources), the file the VitaCuff page uses ──
+    // Until it loads (or if it cannot), the primitive suit above is what you see. Once it is in, the primitives
+    // stay as invisible click targets, and each zone's shell turns into a status glow drawn over the real suit.
+    const realSuit = new THREE.Group();
+    suit.add(realSuit);
+    const suitParts: { mesh: THREE.Mesh; solid: THREE.Material }[] = [];
+    const aura = {} as Record<ZoneId, THREE.MeshBasicMaterial>;
+    for (const z of ZONES) aura[z.id] = new THREE.MeshBasicMaterial({ color: STATUS.nominal, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    const ghost = xrayMaterial(PLATINUM, { base: 0.02, rim: 0.42 });
+    // status glow painted onto the real suit's cloth: per segment, colour x intensity, updated every frame
+    const zoneGlow = {
+      suitInverse: { value: new THREE.Matrix4() },
+      segA: { value: SEGMENTS.map((g) => new THREE.Vector3(...g.a)) },
+      segB: { value: SEGMENTS.map((g) => new THREE.Vector3(...g.b)) },
+      segR: { value: SEGMENTS.map((g) => g.r) },
+      segGlow: { value: SEGMENTS.map(() => new THREE.Color(0, 0, 0)) },
+    };
+    const withZoneGlow = (m: THREE.MeshPhysicalMaterial) => {
+      m.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, zoneGlow);
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nuniform mat4 suitInverse;\nvarying vec3 vSuitPos;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSuitPos = (suitInverse * modelMatrix * vec4(transformed, 1.0)).xyz;');
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', `#include <common>
+            varying vec3 vSuitPos;
+            uniform vec3 segA[${SEGMENTS.length}]; uniform vec3 segB[${SEGMENTS.length}];
+            uniform float segR[${SEGMENTS.length}]; uniform vec3 segGlow[${SEGMENTS.length}];
+            vec3 zoneGlowAt() {
+              vec3 g = vec3(0.0);
+              for (int i = 0; i < ${SEGMENTS.length}; i++) {
+                vec3 pa = vSuitPos - segA[i], ba = segB[i] - segA[i];
+                float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+                g += segGlow[i] * smoothstep(segR[i], segR[i] * 0.45, length(pa - ba * h));
+              }
+              return g;
+            }`)
+          // light added to orange cloth only reads as brighter orange, so the cloth itself takes the status hue
+          .replace('#include <map_fragment>', `#include <map_fragment>
+            vec3 zg = zoneGlowAt();
+            float zmax = max(zg.r, max(zg.g, zg.b));
+            diffuseColor.rgb = mix(diffuseColor.rgb, zg / max(zmax, 1e-4) * 0.32, clamp(zmax * 0.4, 0.0, 0.85));`)
+          .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += zg * 0.35;');
+      };
+      m.customProgramCacheKey = () => 'zone-glow';
+      return m;
+    };
+    let loaded = false, disposed = false;
+    const draco = new DRACOLoader().setDecoderPath('/vitacuff/vendor/three/addons/libs/draco/gltf/');
+    new GLTFLoader().setDRACOLoader(draco).load('/vitacuff/assets/aces.glb', ({ scene: model }) => {
+      if (disposed) return;
+      const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
+      model.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+      realSuit.add(model);
+      realSuit.scale.setScalar(SUIT_HEIGHT / size.y);
+      realSuit.rotation.y = SUIT_TURN;
+      // The file ships flat, glass-like materials: rebuild them as suit cloth, with a mirrored visor.
+      const swapped = new Map<THREE.Material, THREE.Material>(), hsl = { h: 0, s: 0, l: 0 }, c = new THREE.Vector3();
+      realSuit.updateMatrixWorld(true);
+      model.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const old = mesh.material as THREE.MeshStandardMaterial;
+        if (!swapped.has(old)) {
+          old.color.getHSL(hsl);
+          new THREE.Box3().setFromObject(mesh).getCenter(c);
+          const onHead = c.y > 1.45 * (SUIT_HEIGHT / 1.8), golden = hsl.s > 0.25 && hsl.h > 0.08 && hsl.h < 0.17;
+          const color = old.color.clone();
+          // the file's fabric is a pale peach; ACES is international orange (deeper on the gloves)
+          if (hsl.h < 0.11 && hsl.s > 0.2 && hsl.l > 0.3) color.set(hsl.l > 0.55 ? 0xd2561c : 0xb4441a);
+          swapped.set(old, withZoneGlow(onHead && (golden || hsl.l < 0.05)
+            ? new THREE.MeshPhysicalMaterial({ color: golden ? 0xc9983a : 0x0b0c10, metalness: 1, roughness: 0.07, clearcoat: 1, envMapIntensity: 2.5 })
+            : new THREE.MeshPhysicalMaterial({ color, map: old.map, roughness: 0.88, metalness: 0, sheen: 0.3, sheenRoughness: 0.6, sheenColor: color })));
+          old.dispose();
+        }
+        mesh.material = swapped.get(old)!;
+        suitParts.push({ mesh, solid: mesh.material });
+      });
+      for (const o of clickable) {
+        const m = o as THREE.Mesh;
+        const zone = m.userData.zone as ZoneId;
+        if (m.material === shell[zone] || m === hut) m.material = aura[zone];
+        else if (!watchParts.includes(m)) m.visible = false; // three's raycaster still hits hidden meshes
+      }
+      loaded = true;
+      seenXray = null; // re-apply the render mode to the new materials
+    }, undefined, () => { /* keep the primitive suit */ });
 
     // ── X-ray internals ──
     const inner = new THREE.Group();
     inner.visible = false;
     suit.add(inner);
-    const heartMat = new THREE.MeshStandardMaterial({ color: 0x5a0d1c, emissive: STATUS.critical, emissiveIntensity: 1.2, roughness: 0.4 });
+    type P = [number, number, number];
+    const tube = (points: P[], radius: number, material: THREE.Material, segments = 32) => {
+      const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
+      inner.add(new THREE.Mesh(new THREE.TubeGeometry(curve, segments, radius, 8), material));
+      return curve;
+    };
+    // skeleton: bone glows faintly so the organs read in front of it
+    const boneMat = xrayMaterial(new THREE.Color(0xbcd6ff), { scan: false, base: 0.3, rim: 0.9, power: 1.4 }); // cool bone-white, apart from the shell
+    const skull = new THREE.Mesh(sphere(0.082), boneMat);
+    skull.position.set(0, 1.665, -0.045);
+    skull.scale.set(0.9, 1.06, 1.08);
+    inner.add(skull);
+    const jaw = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.009, 8, 24, Math.PI), boneMat);
+    jaw.position.set(0, 1.59, -0.02);
+    jaw.rotation.set(Math.PI / 2 + 0.35, 0, Math.PI);
+    inner.add(jaw);
+    const spine: P[] = [];
+    for (let i = 0; i <= 24; i++) { const k = i / 24; spine.push([0, 1.55 - k * 0.62, -0.125 - 0.025 * Math.sin(k * Math.PI * 1.6)]); }
+    for (const [x, y, z] of spine) {
+      const vertebra = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.016, 12), boneMat);
+      vertebra.position.set(x, y, z);
+      inner.add(vertebra);
+    }
+    for (let i = 0; i < 10; i++) {
+      // each rib curves from the spine round to the front, sloping down; the lower ones are wider and shorter
+      const y = 1.43 - i * 0.032, rx = 0.1 + 0.075 * Math.sin(Math.min(1, (i + 2) / 7) * Math.PI / 2), reach = i < 7 ? 0.86 : 0.62 + (9 - i) * 0.06;
+      for (const side of [1, -1]) {
+        const pts: P[] = [];
+        for (let j = 0; j <= 10; j++) { const a = 0.12 * Math.PI + (j / 10) * reach * Math.PI; pts.push([side * rx * Math.sin(a), y - 0.045 * Math.sin(a / 2), -0.075 - 0.115 * Math.cos(a)]); }
+        tube(pts, 0.0065, boneMat, 20);
+      }
+    }
+    tube([[0, 1.42, 0.035], [0, 1.24, 0.045]], 0.011, boneMat, 4); // sternum
+    for (const side of [1, -1]) {
+      tube([[side * 0.02, 1.44, 0.03], [side * 0.12, 1.455, -0.02], [side * 0.22, 1.45, -0.07]], 0.008, boneMat, 12); // collarbone
+      tube([[side * 0.26, 1.42, -0.07], [side * 0.375, 1.16, -0.055]], 0.013, boneMat, 8); // upper arm
+      tube([[side * 0.38, 1.14, -0.05], [side * 0.37, 1.0, 0.06]], 0.01, boneMat, 8); // forearm
+      tube([[side * 0.1, 0.87, -0.07], [side * 0.12, 0.51, -0.05]], 0.016, boneMat, 8); // thigh
+      tube([[side * 0.12, 0.48, -0.05], [side * 0.12, 0.12, -0.06]], 0.013, boneMat, 8); // shin
+    }
+    const pelvis = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.022, 10, 32), boneMat);
+    pelvis.position.set(0, 0.9, -0.08);
+    pelvis.scale.set(1.25, 0.8, 1);
+    pelvis.rotation.x = Math.PI / 2.4;
+    inner.add(pelvis);
+
+    // heart: two atria over a ventricle that tapers to the apex, plus the aorta arching over and down the spine
+    const heartMat = new THREE.MeshStandardMaterial({ color: 0x5a0d1c, emissive: STATUS.critical, emissiveIntensity: 1.2, roughness: 0.35 });
     const heart = new THREE.Group();
-    for (const [x, y, s] of [[-0.024, 0.02, 1], [0.026, 0.024, 0.92]] as const) {
-      const lobe = new THREE.Mesh(sphere(0.04 * s), heartMat);
+    for (const [x, y, s] of [[-0.022, 0.022, 1], [0.024, 0.026, 0.9]] as const) {
+      const lobe = new THREE.Mesh(sphere(0.036 * s), heartMat);
       lobe.position.set(x, y, 0);
       heart.add(lobe);
     }
-    const apex = new THREE.Mesh(new THREE.ConeGeometry(0.052, 0.085, 20), heartMat);
-    apex.position.set(0.002, -0.03, 0);
+    const ventricle = new THREE.Mesh(sphere(0.05), heartMat);
+    ventricle.position.set(0.004, -0.012, 0);
+    ventricle.scale.set(1, 1.15, 0.85);
+    heart.add(ventricle);
+    const apex = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.06, 20), heartMat);
+    apex.position.set(0.006, -0.065, 0);
     apex.rotation.z = Math.PI;
     heart.add(apex);
-    heart.position.set(0.035, 1.44, 0.07);
-    heart.rotation.z = -0.3;
+    heart.position.set(0.03, 1.29, -0.03);
+    heart.rotation.z = -0.35;
     inner.add(heart);
-    const lungMat = new THREE.MeshStandardMaterial({ color: 0x4a3520, emissive: AMBER, emissiveIntensity: 0.55, transparent: true, opacity: 0.55, roughness: 0.6 });
+    tube([[0.02, 1.33, -0.03], [0.012, 1.385, -0.05], [-0.015, 1.39, -0.09], [-0.02, 1.33, -0.11], [-0.02, 1.0, -0.1]], 0.0095, heartMat, 40);
+
+    // lungs: tapered lobes on either side of the heart, fed by the windpipe and its airways
+    const lungMat = xrayMaterial(new THREE.Color(0xff8f7a), { scan: false, base: 0.2, rim: 1.0, power: 1.5 });
+    const lungProfile = [[0, -0.13], [0.06, -0.125], [0.082, -0.07], [0.082, 0.0], [0.07, 0.06], [0.045, 0.105], [0.018, 0.128], [0, 0.132]].map(([r, y]) => new THREE.Vector2(r, y));
     const lungs = [-1, 1].map((side) => {
-      const lung = new THREE.Mesh(sphere(0.1), lungMat);
-      lung.position.set(side * 0.115, 1.47, 0);
-      lung.scale.set(0.78, 1.45, 0.72);
+      const lung = new THREE.Mesh(new THREE.LatheGeometry(lungProfile, 32), lungMat);
+      lung.position.set(side * 0.098, 1.31, -0.08);
       inner.add(lung);
       return lung;
     });
-    const neuralMat = new THREE.MeshStandardMaterial({ color: 0x1a0f3a, emissive: VIOLET, emissiveIntensity: 1.4, wireframe: true });
-    const neural = new THREE.Mesh(new THREE.IcosahedronGeometry(0.085, 1), neuralMat);
-    neural.position.set(0, 1.86, 0);
+    const airwayMat = new THREE.MeshStandardMaterial({ color: 0x2a1d10, emissive: AMBER, emissiveIntensity: 0.9 });
+    tube([[0, 1.52, -0.06], [0, 1.4, -0.07]], 0.009, airwayMat, 6); // windpipe
+    for (const side of [1, -1]) {
+      tube([[0, 1.4, -0.07], [side * 0.05, 1.37, -0.08], [side * 0.085, 1.33, -0.08]], 0.006, airwayMat, 12);
+      tube([[side * 0.085, 1.33, -0.08], [side * 0.105, 1.27, -0.07], [side * 0.11, 1.22, -0.07]], 0.0035, airwayMat, 12);
+      tube([[side * 0.085, 1.33, -0.08], [side * 0.11, 1.37, -0.09], [side * 0.115, 1.41, -0.09]], 0.0035, airwayMat, 12);
+    }
+
+    // brain: a folded surface (two hemispheres split by a groove) inside the skull
+    const brainGeo = new THREE.SphereGeometry(0.066, 64, 48);
+    const bp = brainGeo.attributes.position, q = new THREE.Vector3();
+    for (let i = 0; i < bp.count; i++) {
+      q.fromBufferAttribute(bp, i);
+      const folds = 1 + 0.07 * Math.sin(q.x * 160) * Math.sin(q.y * 140) * Math.sin(q.z * 120);
+      const groove = 1 - 0.12 * Math.exp(-((q.x / 0.008) ** 2)) * Math.max(0, q.y / 0.066 + 0.4);
+      q.multiplyScalar(folds * groove);
+      bp.setXYZ(i, q.x, q.y, q.z);
+    }
+    brainGeo.computeVertexNormals();
+    const neuralMat = new THREE.MeshStandardMaterial({ color: 0x8a6ff0, emissive: VIOLET, emissiveIntensity: 0.35, roughness: 0.55 }); // lit, so the folds read
+    const neural = new THREE.Mesh(brainGeo, neuralMat);
+    neural.position.set(0, 1.685, -0.045);
+    neural.scale.set(0.9, 0.82, 1.1);
     inner.add(neural);
-    const arteryMat = new THREE.MeshStandardMaterial({ color: 0x34343b, emissive: PLATINUM, emissiveIntensity: 0.9 });
+
+    // arteries along the real limbs, each carrying a pulse that leaves the heart on every beat
+    const arteryMat = new THREE.MeshStandardMaterial({ color: 0x34343b, emissive: STATUS.critical, emissiveIntensity: 0.55 });
     const pulseMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const core: [number, number, number] = [0.02, 1.44, 0.05];
+    const core: P = [0.02, 1.3, -0.03];
     const arteries = ([
-      [core, [0, 1.62, 0.02], [0, 1.84, 0]],
-      [core, [0.2, 1.54, 0], [0.43, 1.25, 0.02], [0.48, 0.9, 0.11]],
-      [core, [-0.2, 1.54, 0], [-0.43, 1.25, 0.02], [-0.48, 0.9, 0.11]],
-      [core, [0.04, 1.1, 0.02], [0.12, 0.9, 0], [0.13, 0.58, 0.01], [0.13, 0.12, 0.02]],
-      [core, [-0.04, 1.1, 0.02], [-0.12, 0.9, 0], [-0.13, 0.58, 0.01], [-0.13, 0.12, 0.02]],
-    ] as [number, number, number][][]).map((points) => {
-      const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
-      inner.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.007, 8), arteryMat));
-      const pulse = new THREE.Mesh(sphere(0.016), pulseMat);
+      [core, [0.01, 1.45, -0.06], [0.005, 1.6, -0.05]],
+      [core, [0.18, 1.4, -0.07], [0.375, 1.16, -0.05], [0.37, 0.98, 0.07]],
+      [core, [-0.18, 1.4, -0.07], [-0.375, 1.16, -0.05], [-0.37, 0.98, 0.07]],
+      [core, [0.04, 0.98, -0.08], [0.1, 0.86, -0.06], [0.125, 0.5, -0.03], [0.125, 0.12, -0.04]],
+      [core, [-0.04, 0.98, -0.08], [-0.1, 0.86, -0.06], [-0.125, 0.5, -0.03], [-0.125, 0.12, -0.04]],
+    ] as P[][]).map((points) => {
+      const curve = tube(points, 0.0045, arteryMat, 48);
+      const pulse = new THREE.Mesh(sphere(0.012), pulseMat);
       inner.add(pulse);
       return { curve, pulse };
     });
@@ -299,7 +512,7 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       if (!onScreen || document.hidden) { last = now; return; }
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); // the first rAF stamp can predate `last`
       last = now;
       const s = engine.sample(now);
       const sim = s.paused ? 0 : dt * s.speed;
@@ -333,11 +546,17 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
         seenXray = props.xray;
         inner.visible = props.xray;
         for (const m of translucent) { m.transparent = props.xray; m.opacity = props.xray ? 0.18 : 1; m.depthWrite = !props.xray; m.needsUpdate = true; }
+        for (const p of suitParts) p.mesh.material = props.xray ? ghost : p.solid;
       }
+      ghost.uniforms.time.value = t;
+      suit.updateMatrixWorld();
+      zoneGlow.suitInverse.value.copy(suit.matrixWorld).invert();
 
       // body motion: breathing at the live respiration rate, a slow zero-g drift
-      heartPhase = (heartPhase + sim * Math.max(20, s.sensorFault ? 72 : s.values.hr) / 60) % 1;
-      breathPhase += sim * (s.values.resp / 60) * Math.PI * 2;
+      // a missing sample must not turn a phase into NaN: NaN never recovers and stops the render loop
+      const hr = s.sensorFault || !Number.isFinite(s.values.hr) ? 72 : s.values.hr, resp = Number.isFinite(s.values.resp) ? s.values.resp : 14;
+      heartPhase = (heartPhase + sim * Math.max(20, hr) / 60) % 1;
+      breathPhase += sim * (resp / 60) * Math.PI * 2;
       const breath = Math.sin(breathPhase);
       hut.scale.set(1.1 * (1 + 0.012 * breath), 0.96, 0.84 * (1 + 0.03 * breath));
       if (!reduced) {
@@ -352,10 +571,12 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
         const beat = 1 + 0.17 * Math.exp(-((heartPhase - 0.08) ** 2) / 0.003) + 0.09 * Math.exp(-((heartPhase - 0.26) ** 2) / 0.005);
         heart.scale.setScalar(beat);
         heartMat.emissiveIntensity = 0.7 + (beat - 1) * 6;
-        for (const lung of lungs) lung.scale.set(0.78 * (1 + 0.1 * breath), 1.45 * (1 + 0.05 * breath), 0.72 * (1 + 0.14 * breath));
-        neural.rotation.y = t * 0.5;
-        neuralMat.emissiveIntensity = 1 + 0.6 * Math.sin(t * (s.activity === 'stress' ? 9 : 3));
-        arteries.forEach(({ curve, pulse }, i) => { pulse.position.copy(curve.getPointAt((heartPhase + i * 0.07) % 1)); });
+        for (const lung of lungs) lung.scale.set(1 + 0.08 * breath, 1 + 0.04 * breath, 0.8 * (1 + 0.12 * breath));
+        neuralMat.emissiveIntensity = 0.35 + 0.25 * Math.sin(t * (s.activity === 'stress' ? 9 : 3));
+        arteries.forEach(({ curve, pulse }, i) => {
+          const u = (((heartPhase + i * 0.07) % 1) + 1) % 1; // getPointAt reads past the curve for u outside [0, 1)
+          if (Number.isFinite(u)) pulse.position.copy(curve.getPointAt(u));
+        });
       }
 
       // zone status -> glow
@@ -369,6 +590,14 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
           : status === 'critical' ? (Math.sin(t * Math.PI * 6) > 0 ? 1.05 : 0.18)
           : 0.35 + 0.5 * Math.random()
         ) + (props.selected === z.id ? 0.12 : 0);
+        if (loaded) {
+          // Only problems glow, plus a hint on the zone you picked. On the real suit the cloth itself lights up;
+          // in X-ray the zone shapes glow around the anatomy instead.
+          const level = status === 'nominal' ? (props.selected === z.id ? 0.1 : 0) : m.emissiveIntensity;
+          aura[z.id].color.copy(STATUS[status]);
+          aura[z.id].opacity = props.xray ? Math.min(0.6, level * 0.45) : 0;
+          SEGMENTS.forEach((g, i) => { if (g.zone === z.id) zoneGlow.segGlow.value[i].copy(STATUS[status]).multiplyScalar(props.xray ? 0 : level * 2.4); }); // strong: red and amber must read on orange cloth
+        }
         const ring = rings[z.id];
         ring.visible = status === 'critical';
         if (ring.visible) {
@@ -424,6 +653,10 @@ export default function SuitViewport({ engine, selected, onSelect, xray, autoRot
     raf = requestAnimationFrame(frame);
 
     return () => {
+      disposed = true;
+      draco.dispose();
+      ghost.dispose();
+      for (const z of ZONES) aura[z.id].dispose();
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       visibility.disconnect();
