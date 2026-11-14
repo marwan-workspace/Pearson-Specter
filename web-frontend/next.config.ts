@@ -3,6 +3,9 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
+  // the telemetry engine imports ../watch/rules.json and baselines.json, the same files the Python watch reads
+  experimental: { externalDir: true },
+  transpilePackages: ['three'],
   async rewrites() {
     const backend = (process.env.BACKEND_URL || 'http://localhost:8000').replace(/\/+$/, '');
     return [{ source: '/backend/:path*', destination: `${backend}/backend/:path*` }];

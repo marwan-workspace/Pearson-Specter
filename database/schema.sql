@@ -863,6 +863,7 @@ GRANT INSERT, UPDATE ON check_ins, check_in_answers, agent_conversations, agent_
     crew_alerts, decisions, treatment_plans, treatment_plan_items, medication_events, sessions, accounts,
     astronauts, command_handovers, mission_reports TO app_user;
 GRANT DELETE ON sessions TO app_user;  -- sign-out; the session_logout policy limits it to the caller's own session
+GRANT INSERT ON health_assessments, sleep_sessions TO app_user;  -- Run assessment and the check-in's sleep entry; their insert policies limit the rows
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO watch_service;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user, watch_service;
 

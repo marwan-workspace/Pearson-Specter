@@ -60,17 +60,21 @@ const runPython = (args, input, timeoutMs = 65_000) => new Promise((resolve, rej
 async function appTransaction(token, fn) {
   const c = await pool.connect();
   try {
-    await c.query('BEGIN'); await c.query('SET LOCAL ROLE app_user');
-    if (token) {
+    // The whole session setup goes to the database as ONE message: with a remote database every round trip
+    // costs a third of a second, and this ran five of them on every request. The statements still run in order.
+    // tokenHash is safe to inline: sha256() always yields exactly 64 hex characters, whatever the cookie held.
+    if (!token) await c.query('BEGIN; SET LOCAL ROLE app_user');
+    else {
       const tokenHash = sha256(token);
-      await c.query("SELECT set_config('app.session_hash', $1, true)", [tokenHash]);
-      const s = await c.query('SELECT astronaut_id FROM sessions WHERE token_hash=$1 AND expires_at > now()', [tokenHash]);
-      if (!s.rowCount) throw new HttpError(401, 'Please sign in again.');
-      await c.query("SELECT set_config('app.astronaut_id', $1, true)", [s.rows[0].astronaut_id]);
-      const a = await c.query(`SELECT a.*, m.name AS mission_name, m.destination, m.earth_round_trip_seconds,
+      const results = await c.query(`BEGIN; SET LOCAL ROLE app_user;
+        SELECT set_config('app.session_hash', '${tokenHash}', true);
+        SELECT set_config('app.astronaut_id', COALESCE((SELECT astronaut_id::text FROM sessions
+          WHERE token_hash='${tokenHash}' AND expires_at > now()), ''), true);
+        SELECT a.*, m.name AS mission_name, m.destination, m.earth_round_trip_seconds,
           m.earth_link_available, m.earth_review_seconds
-        FROM astronauts a JOIN missions m ON m.id=a.mission_id WHERE a.id=$1`, [s.rows[0].astronaut_id]);
-      if (!a.rowCount) throw new HttpError(401, 'This crew account is no longer active.');
+        FROM astronauts a JOIN missions m ON m.id=a.mission_id WHERE a.id=app_astronaut_id()`);
+      const a = results[results.length - 1];
+      if (!a.rowCount) throw new HttpError(401, 'Please sign in again.');
       c.astronaut = a.rows[0];
     }
     const out = await fn(c);
@@ -170,16 +174,15 @@ async function route(req, res, url) {
     const dataMatch = pathName.match(/^\/astronauts\/([^/]+)\/(vitals|sleep|mental|checkins|assessment|plan|medications|labs|events|decisions)$/);
     if (method === 'GET' && dataMatch) { const [, key, table] = dataMatch; const id=await resolveAstronaut(c,key); await assertVisible(c,id); return readTable(c,table,id,url.searchParams.get('since')); }
     if (method === 'GET' && pathName === '/crew/overview') {
-      await requireLeader(c);
-      const roster = await c.query(`SELECT id, display_name, callsign, role, command_rank, fit_for_command FROM astronauts WHERE mission_id=$1 AND active ORDER BY command_rank`, [a.mission_id]);
-      const items = [];
-      for (const member of roster.rows) {
-        const vitals = await c.query('SELECT * FROM vital_samples WHERE astronaut_id=$1 ORDER BY observed_at DESC LIMIT 1',[member.id]);
-        const checkin = await c.query('SELECT * FROM check_ins WHERE astronaut_id=$1 ORDER BY check_in_date DESC LIMIT 1',[member.id]);
-        const events = await c.query("SELECT count(*)::int AS count FROM condition_events WHERE astronaut_id=$1 AND status IN ('open','monitoring')",[member.id]);
-        items.push({ ...member, latestVitals:vitals.rows[0] || null, latestCheckIn:checkin.rows[0] || null, openEvents:events.rows[0].count });
-      }
-      return { crew:items, actingLeaderId:a.id };
+      // One query, one round trip: the leader check and each member's latest reading, check-in and open events.
+      // (It was 13 queries, which is over four seconds against a remote database, on a page that polls.)
+      const q = await c.query(`SELECT m.id, m.display_name, m.callsign, m.role, m.command_rank, m.fit_for_command,
+          (SELECT to_jsonb(v) FROM vital_samples v WHERE v.astronaut_id=m.id ORDER BY v.observed_at DESC LIMIT 1) AS "latestVitals",
+          (SELECT to_jsonb(ci) FROM check_ins ci WHERE ci.astronaut_id=m.id ORDER BY ci.check_in_date DESC LIMIT 1) AS "latestCheckIn",
+          (SELECT count(*)::int FROM condition_events e WHERE e.astronaut_id=m.id AND e.status IN ('open','monitoring')) AS "openEvents"
+        FROM astronauts m WHERE m.mission_id=$1 AND m.active AND acting_leader(m.mission_id)=$2 ORDER BY m.command_rank`, [a.mission_id, a.id]);
+      if (!q.rowCount) throw new HttpError(403, 'Only the acting leader can do this.');
+      return { crew:q.rows, actingLeaderId:a.id };
     }
     if (method === 'GET' && pathName === '/decisions/pending') {
       const q = await c.query(`SELECT d.*,subject.callsign AS subject_callsign,subject.display_name AS subject_name
@@ -341,7 +344,7 @@ async function route(req, res, url) {
       return {items:rows};
     }
     if(method==='GET' && pathName==='/medications') {
-      const q=await c.query(`SELECT m.name,m.route,m.stock_unit,COALESCE(sum(i.quantity_on_hand),0) AS quantity_on_hand
+      const q=await c.query(`SELECT m.id,m.name,m.route,m.stock_unit,COALESCE(sum(i.quantity_on_hand),0) AS quantity_on_hand
         FROM medications m LEFT JOIN medication_inventory i ON i.medication_id=m.id AND i.mission_id=$1
           AND (i.expires_on IS NULL OR i.expires_on>=CURRENT_DATE)
         WHERE m.active GROUP BY m.id ORDER BY m.name`,[a.mission_id]); return {items:q.rows};
